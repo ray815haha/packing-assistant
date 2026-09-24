@@ -127,6 +127,7 @@ def placement_steps(result: PackingResult) -> list[dict]:
                 "natural_size": list(p.item.natural_dims),
                 "squeezed_pct": round(100 * squeezed),
                 "priority": p.item.priority,
+                "priority_on_top": p.item.priority and id(p) not in buried,
                 "position": [round(p.x, 3), round(p.y, 3), round(p.z, 3)],  # min corner
                 "size": [round(v, 3) for v in p.size],  # placed extents along x, y, z
                 "orientation": orientation_label(p),

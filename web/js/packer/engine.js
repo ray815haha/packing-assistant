@@ -464,6 +464,7 @@ export function layoutDict(r) {
       weight_kg: p.item.weight, fragile: p.item.fragile,
       original_size: dims(p.item), natural_size: naturalDims(p.item),
       squeezed_pct: Math.round(100 * sq), priority: p.item.priority,
+      priority_on_top: p.item.priority && !buried.has(p),
       position: [round(p.x, 3), round(p.y, 3), round(p.z, 3)],
       size: p.size.map((v) => round(v, 3)),
       orientation: orientationLabel(p),

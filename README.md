@@ -27,6 +27,9 @@ dropping into place, step by step.
 - **Share**: a link (or a trip code in the online version) that loads your
   suitcase and item list for someone else
 - **Printable checklist** with a picture of the packed case and tick boxes
+- **English and 繁體中文**: switch under Settings (the gear icon, top right). The whole
+  app switches, including item names, trip presets and packing steps. To add a
+  language, see `web/js/i18n.js`
 
 Everything runs locally with only the Python standard library. No installs,
 no internet needed.

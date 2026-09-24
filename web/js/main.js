@@ -5,6 +5,9 @@ import { PackingScene } from './scene.js';
 import { thumbInto } from './thumbs.js';
 import { MODEL_BUILDERS } from './models.js';
 import { connect } from './api.js';
+import {
+  LANGS, lang, setLang, onLangChange, t, catalogName, packedName, applyStatic, reasonText, describeStep,
+} from './i18n.js';
 
 const $ = (id) => document.getElementById(id);
 const el = (tag, attrs = {}, ...children) => {
@@ -48,17 +51,17 @@ async function init() {
   try {
     scene = new PackingScene($('scene'));
   } catch (err) {
-    $('emptyState').innerHTML = `<h3>3D view unavailable</h3><p>${escapeHtml(err.message)} Try a recent Chrome, Edge or Firefox.</p>`;
+    $('emptyState').innerHTML = `<h3>${t('err.no3dTitle')}</h3><p>${escapeHtml(err.message)} ${t('err.no3dBody')}</p>`;
   }
   window.spa = { state, get scene() { return scene; }, get backend() { return backend; } };
   backend = await connect();
   state.catalog = backend.catalog;
-  $('modeBadge').textContent = backend.mode === 'server' ? 'Running on your computer' : 'Running in your browser';
+  state.catalogIds = new Set(state.catalog.items.map((i) => i.id));
   $('printBtn').hidden = backend.mode !== 'server';
   $('printBtn').previousElementSibling.hidden = backend.mode !== 'server';
-  $('modeBadge').title = backend.mode === 'server'
-    ? 'Packing runs in Python; saved trips are stored in data/trips.json'
-    : 'Packing runs in this browser; saved trips are stored in this browser only';
+  applyStatic();
+  renderChrome();
+  renderLanguageOptions();
   restore();
   const shared = readShareLink();
   renderSuitcases();
@@ -72,7 +75,7 @@ async function init() {
   updateSummary();
   bindControls();
   await refreshTrips();
-  if (shared) toast('Loaded a shared packing list. Press "Pack my suitcase" to see it.');
+  if (shared) toast(t('toast.sharedLoaded'));
 }
 
 // -- persistence (per-browser convenience only) ------------------------------ //
@@ -140,7 +143,7 @@ function readShareLink() {
     history.replaceState(null, '', location.pathname + location.search);
     return true;
   } catch {
-    toast("That share link couldn't be read.");
+    toast(t('toast.shareBad'));
     return false;
   }
 }
@@ -163,7 +166,7 @@ function renderSuitcases() {
       onclick: () => { state.suitcaseId = s.id; state.dims = presetDims(s.id); renderSuitcases(); applySuitcase(); },
     },
     el('span', { class: 'glyph', style: `width:${Math.round(18 + 16 * k)}px;height:${Math.round(20 + 14 * k)}px` }),
-    el('b', {}, s.name), el('small', {}, `${s.length}×${s.width}×${s.height}`)));
+    el('b', {}, catalogName('suitcases', s.id, s.name)), el('small', {}, `${s.length}×${s.width}×${s.height}`)));
   }
   $('dimL').value = state.dims.length;
   $('dimW').value = state.dims.width;
@@ -176,7 +179,7 @@ function renderSwatches() {
   box.innerHTML = '';
   for (const c of SHELL_COLORS) {
     box.append(el('button', {
-      class: 'swatch', type: 'button', role: 'radio', 'aria-checked': String(state.shell === c), title: 'Suitcase colour',
+      class: 'swatch', type: 'button', role: 'radio', 'aria-checked': String(state.shell === c), title: t('s1.colour'),
       style: `background:${c}`, onclick: () => { state.shell = c; renderSwatches(); applySuitcase(); },
     }));
   }
@@ -202,7 +205,7 @@ function renderProfiles() {
   for (const p of state.catalog.profiles) {
     const n = Object.values(p.items).reduce((a, b) => a + b, 0);
     box.append(el('button', {
-      class: 'chip', type: 'button', 'aria-pressed': String(state.profile === p.id), title: `${n} items`,
+      class: 'chip', type: 'button', 'aria-pressed': String(state.profile === p.id), title: t('trips.count', { n }),
       onclick: () => {
         state.profile = p.id;
         state.qty = { ...p.items };
@@ -211,7 +214,7 @@ function renderProfiles() {
         state.dims = presetDims(p.suitcase);
         refreshAll();
       },
-    }, p.name));
+    }, catalogName('profiles', p.id, p.name)));
   }
 }
 
@@ -223,30 +226,28 @@ async function refreshTrips() {
 function renderTrips() {
   const box = $('myTrips');
   box.innerHTML = '';
-  for (const t of state.trips) {
-    const n = Object.values(t.qty || {}).reduce((a, b) => a + b, 0) + (t.custom || []).length;
-    box.append(el('span', { class: 'chip trip-chip', title: `${n} items` },
-      el('button', { type: 'button', class: 'link', style: 'color:inherit', onclick: () => loadTrip(t) }, t.name),
-      el('button', { type: 'button', class: 'x', 'aria-label': `Delete ${t.name}`, onclick: () => removeTrip(t) }, '×')));
+  for (const trip of state.trips) {
+    const n = Object.values(trip.qty || {}).reduce((a, b) => a + b, 0) + (trip.custom || []).length;
+    box.append(el('span', { class: 'chip trip-chip', title: t('trips.count', { n }) },
+      el('button', { type: 'button', class: 'link', style: 'color:inherit', onclick: () => loadTrip(trip) }, trip.name),
+      el('button', { type: 'button', class: 'x', 'aria-label': t('trips.delete', { name: trip.name }), onclick: () => removeTrip(trip) }, '×')));
   }
-  $('tripsHint').textContent = state.trips.length ? '' : (backend.mode === 'server'
-    ? 'Save your selection to reuse it later. Trips are kept in data/trips.json.'
-    : 'Save your selection to reuse it later. Trips are kept in this browser.');
+  $('tripsHint').textContent = state.trips.length ? '' : t(backend.mode === 'server' ? 'trips.hintServer' : 'trips.hintBrowser');
 }
 
-function loadTrip(t) {
-  applySnapshot({ ...t, dims: t.suitcase, suitcaseId: t.suitcaseId || 'custom' });
+function loadTrip(trip) {
+  applySnapshot({ ...trip, dims: trip.suitcase, suitcaseId: trip.suitcaseId || 'custom' });
   matchPreset();
   state.profile = null;
   refreshAll();
-  toast(`Loaded "${t.name}"`);
+  toast(t('toast.loaded', { name: trip.name }));
 }
 
-async function removeTrip(t) {
+async function removeTrip(trip) {
   try {
-    await backend.deleteTrip(t.id);
-    toast(`Deleted "${t.name}"`);
-  } catch (err) { toast(`Couldn't delete: ${err.message}`); }
+    await backend.deleteTrip(trip.id);
+    toast(t('toast.deleted', { name: trip.name }));
+  } catch (err) { toast(t('toast.deleteFail', { msg: err.message })); }
   refreshTrips();
 }
 
@@ -254,8 +255,8 @@ async function saveCurrentTrip(name) {
   const s = snapshot();
   try {
     const saved = await backend.saveTrip({ name, suitcase: s.dims, suitcaseId: s.suitcaseId, shell: s.shell, qty: s.qty, priority: s.priority, custom: s.custom });
-    toast(`Saved "${saved.name}"`);
-  } catch (err) { toast(`Couldn't save: ${err.message}`); }
+    toast(t('toast.saved', { name: saved.name }));
+  } catch (err) { toast(t('toast.saveFail', { msg: err.message })); }
   refreshTrips();
 }
 
@@ -271,11 +272,12 @@ function refreshAll() {
 function renderCategories() {
   const box = $('categories');
   box.innerHTML = '';
-  const cats = [{ id: 'all', name: 'All' }, { id: 'selected', name: 'Selected' }, ...state.catalog.categories];
+  const cats = [{ id: 'all', name: t('cat.all') }, { id: 'selected', name: t('cat.selected') },
+    ...state.catalog.categories.map((c) => ({ ...c, name: catalogName('categories', c.id, c.name) }))];
   for (const c of cats) {
     const count = c.id === 'selected' ? Object.keys(state.qty).length + state.custom.length : null;
     box.append(el('button', {
-      class: 'chip', type: 'button', 'aria-pressed': String(state.category === c.id),
+      class: 'chip', type: 'button', 'aria-pressed': String(state.category === c.id), 'data-cat': c.id,
       onclick: () => { state.category = c.id; renderCategories(); renderItems(); },
     }, c.name, count !== null ? el('span', { class: 'count' }, String(count)) : null));
   }
@@ -285,8 +287,8 @@ function renderItems() {
   const list = $('itemList');
   list.innerHTML = '';
   const q = state.query.trim().toLowerCase();
-  const match = (it) => !q || `${it.name} ${it.category} ${it.model}`.toLowerCase().includes(q);
-  const catName = Object.fromEntries(state.catalog.categories.map((c) => [c.id, c.name]));
+  const match = (it) => !q || `${it.name} ${itemLabel(it)} ${it.category} ${catalogName('categories', it.category, '')} ${it.model}`.toLowerCase().includes(q);
+  const catName = Object.fromEntries(state.catalog.categories.map((c) => [c.id, catalogName('categories', c.id, c.name)]));
   let shown = 0;
   const groups = state.category === 'all' || state.category === 'selected'
     ? state.catalog.categories.map((c) => c.id) : [state.category];
@@ -300,16 +302,20 @@ function renderItems() {
   }
   const customs = state.custom.filter((c) => match(c) && (state.category === 'all' || state.category === 'selected' || state.category === c.category));
   if (customs.length) {
-    list.append(el('div', { class: 'cat-title' }, 'Your items'));
+    list.append(el('div', { class: 'cat-title' }, t('list.yours')));
     for (const c of customs) { list.append(itemRow(c, true)); shown++; }
   }
-  if (!shown) list.append(el('p', { class: 'hint' }, q ? `Nothing matches "${state.query}". Add it as your own item below.` : 'Nothing selected yet.'));
+  if (!shown) list.append(el('p', { class: 'hint' }, q ? t('list.noMatch', { q: state.query }) : t('list.none')));
 }
+
+/** Display name of a catalogue or custom item in the current language. */
+const itemLabel = (it) => (state.catalogIds && state.catalogIds.has(it.id) ? catalogName('items', it.id, it.name) : it.name);
 
 const isPriority = (it, isCustom) => (isCustom ? !!it.priority : (state.priority[it.id] ?? !!it.priority));
 
 function itemRow(it, isCustom = false) {
   const n = isCustom ? (it.quantity || 1) : (state.qty[it.id] || 0);
+  const label = itemLabel(it);
   const img = el('img', { class: 'thumb', alt: '' });
   thumbInto(img, it);
   const out = el('output', {}, String(n));
@@ -329,13 +335,13 @@ function itemRow(it, isCustom = false) {
     row.classList.toggle('selected', v > 0);
     renderProfilesPressed();
   };
-  const minus = el('button', { type: 'button', 'aria-label': `Remove one ${it.name}`, onclick: () => setQty(Number(out.textContent) - 1) }, '−');
-  const plus = el('button', { type: 'button', 'aria-label': `Add one ${it.name}`, onclick: () => setQty(Number(out.textContent) + 1) }, '+');
+  const minus = el('button', { type: 'button', 'aria-label': t('item.remove', { name: label }), onclick: () => setQty(Number(out.textContent) - 1) }, '−');
+  const plus = el('button', { type: 'button', 'aria-label': t('item.add', { name: label }), onclick: () => setQty(Number(out.textContent) + 1) }, '+');
   minus.disabled = n === 0;
   const pin = el('button', {
     type: 'button', class: 'pin', 'aria-pressed': String(isPriority(it, isCustom)),
-    title: 'Need it first: packed last, on top, easy to grab',
-    'aria-label': `Need ${it.name} first`,
+    title: t('item.pinTitle'),
+    'aria-label': t('item.pinAria', { name: label }),
     onclick: () => {
       const on = !isPriority(it, isCustom);
       if (isCustom) it.priority = on;
@@ -346,13 +352,13 @@ function itemRow(it, isCustom = false) {
     },
   }, svg(PIN_ICON));
   const tags = [];
-  if (it.fragile) tags.push(el('span', { class: 'tag' }, 'fragile'));
-  if (it.upright) tags.push(el('span', { class: 'tag' }, 'upright'));
-  if (it.squeeze) tags.push(el('span', { class: 'tag soft', title: `Can be squashed by up to ${Math.round(it.squeeze * 100)}%` }, 'soft'));
+  if (it.fragile) tags.push(el('span', { class: 'tag' }, t('tag.fragile')));
+  if (it.upright) tags.push(el('span', { class: 'tag' }, t('tag.upright')));
+  if (it.squeeze) tags.push(el('span', { class: 'tag soft', title: t('tag.softTitle', { n: Math.round(it.squeeze * 100) }) }, t('tag.soft')));
   const row = el('div', { class: `item-row${n > 0 ? ' selected' : ''}` },
     img,
-    el('div', {}, el('div', { class: 'name' }, it.name, ...tags),
-      el('div', { class: 'meta' }, `${fmt(it.length)}×${fmt(it.width)}×${fmt(it.height)} cm · ${fmt(it.weight, 2)} kg`)),
+    el('div', {}, el('div', { class: 'name' }, label, ...tags),
+      el('div', { class: 'meta' }, `${fmt(it.length)}×${fmt(it.width)}×${fmt(it.height)} ${t('unit.cm')} · ${fmt(it.weight, 2)} ${t('unit.kg')}`)),
     el('div', { class: 'controls' }, pin, el('div', { class: 'stepper' }, minus, out, plus)));
   return row;
 }
@@ -362,13 +368,13 @@ function renderProfilesPressed() {
 }
 
 function renderCustomModelOptions() {
-  const looks = {
-    box: 'Plain box', packing_cube: 'Packing cube', pouch: 'Zip pouch', tshirt: 'Folded top', jeans: 'Folded trousers',
-    roll: 'Rolled clothing', sneakers: 'Shoes', book: 'Book', laptop: 'Laptop / tablet', bottle: 'Bottle',
-    flask: 'Water bottle', gift: 'Gift box', snack_box: 'Carton', towel_roll: 'Rolled towel', camera: 'Camera',
-  };
+  const looks = ['box', 'packing_cube', 'pouch', 'tshirt', 'jeans', 'roll', 'sneakers', 'book', 'laptop', 'bottle',
+    'flask', 'gift', 'snack_box', 'towel_roll', 'camera'];
   const sel = $('customModel');
-  for (const [k, v] of Object.entries(looks)) if (MODEL_BUILDERS[k]) sel.append(el('option', { value: k }, v));
+  const current = sel.value;
+  sel.innerHTML = '';
+  for (const k of looks) if (MODEL_BUILDERS[k]) sel.append(el('option', { value: k }, t(`looks.${k}`)));
+  if (current) sel.value = current;
 }
 
 // -- summary ----------------------------------------------------------------- //
@@ -387,8 +393,9 @@ function updateSummary() {
   const d = state.dims;
   const cap = d.length * d.width * d.height;
   const pct = cap ? (100 * vol) / cap : 0;
-  $('sumCount').textContent = `${count} item${count === 1 ? '' : 's'}`;
-  $('sumWeight').textContent = count ? `${fmt(kg, 2)} kg${d.max_weight ? ` of ${fmt(d.max_weight)} kg` : ''}` : '';
+  $('sumCount').textContent = count === 1 ? t('sum.item') : t('sum.items', { n: count });
+  $('sumWeight').textContent = !count ? '' : d.max_weight
+    ? t('sum.weight', { kg: fmt(kg, 2), max: fmt(d.max_weight) }) : t('sum.weightNoMax', { kg: fmt(kg, 2) });
   const bar = $('fillBar');
   bar.style.width = `${Math.min(100, pct)}%`;
   const overKg = d.max_weight && kg > d.max_weight;
@@ -396,13 +403,14 @@ function updateSummary() {
   bar.className = cls;
   const note = $('fillNote');
   note.className = `fill-note ${cls}`;
-  if (!count) note.textContent = 'Add some items to get started.';
-  else if (overKg) note.textContent = `Over the ${fmt(d.max_weight)} kg limit, so some items will be left out.`;
-  else if (pct > 100) note.textContent = `Items take ${fmt(pct, 0)}% of the case's volume. Not everything will fit${state.allowSqueeze ? ', even squeezed' : ''}.`;
-  else if (pct > 80) note.textContent = `${fmt(pct, 0)}% of the volume: tight.${state.allowSqueeze ? ' Soft items may get squeezed.' : ' Odd shapes may not all fit.'}`;
-  else note.textContent = `Items take about ${fmt(pct, 0)}% of the case's volume.`;
+  const p = fmt(pct, 0);
+  if (!count) note.textContent = t('fill.empty');
+  else if (overKg) note.textContent = t('fill.overKg', { max: fmt(d.max_weight) });
+  else if (pct > 100) note.textContent = t(state.allowSqueeze ? 'fill.overSq' : 'fill.over', { pct: p });
+  else if (pct > 80) note.textContent = t(state.allowSqueeze ? 'fill.tightSq' : 'fill.tight', { pct: p });
+  else note.textContent = t('fill.ok', { pct: p });
   $('packBtn').disabled = !count;
-  const btn = [...$('categories').children].find((b) => b.textContent.startsWith('Selected'));
+  const btn = $('categories').querySelector('[data-cat="selected"]');
   if (btn) btn.querySelector('.count').textContent = String(Object.keys(state.qty).length + state.custom.length);
 }
 
@@ -418,15 +426,15 @@ async function doPack() {
     options: { time_limit: count > 30 ? 8 : 5, allow_squeeze: state.allowSqueeze },
   };
   $('loading').hidden = false;
-  $('loadingNote').textContent = `Trying hundreds of arrangements of ${count} items`;
+  $('loadingNote').textContent = t('loading.note', { n: count });
   $('packBtn').disabled = true;
   try {
-    const data = await backend.pack(body, (n) => { $('loadingNote').textContent = `${n} arrangements tried…`; });
+    const data = await backend.pack(body, (n) => { $('loadingNote').textContent = t('loading.progress', { n: fmt(n, 0) }); });
     state.layout = data;
     $('loading').hidden = true;
     await showResult(data);
   } catch (err) {
-    showBanner(`<b>Packing failed:</b> ${escapeHtml(err.message)}`);
+    showBanner(`<b>${t('banner.failed')}</b> ${escapeHtml(err.message)}`);
   } finally {
     $('loading').hidden = true;
     $('packBtn').disabled = false;
@@ -437,36 +445,13 @@ function suitcaseName() {
   const s = state.catalog.suitcases.find((x) => x.id === state.suitcaseId);
   const d = state.dims;
   const same = s && s.length === d.length && s.width === d.width && s.height === d.height;
-  return same ? s.name : 'Custom suitcase';
+  return same ? s.name : 'Custom suitcase'; // sent to the engine; shown translated via suitcaseTitle()
 }
 
 async function showResult(layout) {
-  const m = layout.metrics;
   $('emptyState').hidden = true;
   $('metrics').hidden = false;
-  $('mEff').textContent = `${fmt(m.volume_efficiency_pct, 1)}%`;
-  $('mItems').textContent = `${m.items_packed} / ${m.items_total}`;
-  $('mWeight').textContent = m.weight_limit_kg ? `${fmt(m.packed_weight_kg, 1)} / ${fmt(m.weight_limit_kg)} kg` : `${fmt(m.packed_weight_kg, 1)} kg`;
-  $('mFree').textContent = `${fmt(m.unused_volume_cm3 / 1000, 1)} L`;
-  const notes = $('metricNotes');
-  notes.innerHTML = '';
-  if (m.squeezed_items) notes.append(el('span', { class: 'pill', title: 'Soft items pressed flatter to make everything fit' }, el('b', {}, String(m.squeezed_items)), ' soft items squeezed'));
-  if (m.priority_items) {
-    const onTop = m.priority_items - m.priority_buried;
-    notes.append(el('span', { class: 'pill' }, el('b', {}, `${onTop}/${m.priority_items}`), ' need-it-first items on top'));
-  }
-  notes.append(el('span', { class: 'pill', title: m.strategy }, `${fmt(m.attempts, 0)} layouts tried in ${fmt(layout.elapsed_s ?? 0, 1)} s`));
-
-  if (layout.unpacked.length) {
-    const hint = state.allowSqueeze ? 'Try a bigger case or fewer items.' : 'Try turning on squeezing, a bigger case or fewer items.';
-    showBanner(`<b>${layout.unpacked.length} item${layout.unpacked.length > 1 ? 's' : ''} didn't fit.</b> ${hint}<ul>${
-      layout.unpacked.slice(0, 6).map((u) => `<li>${escapeHtml(u.name)}: ${escapeHtml(u.reason)}</li>`).join('')
-    }${layout.unpacked.length > 6 ? `<li>…and ${layout.unpacked.length - 6} more</li>` : ''}</ul>`);
-  } else {
-    $('unpackedBanner').hidden = true;
-  }
-
-  renderSteps(layout);
+  renderResultText(layout);
   $('player').hidden = false;
   $('stepsPanel').hidden = false;
   document.querySelector('.stage').classList.remove('no-steps');
@@ -478,6 +463,51 @@ async function showResult(layout) {
     scene.play();
     syncPlayer();
   }
+}
+
+/** Everything about a result that is text (re-run when the language changes). */
+function renderResultText(layout) {
+  const m = layout.metrics;
+  $('mEff').textContent = `${fmt(m.volume_efficiency_pct, 1)}%`;
+  $('mItems').textContent = `${m.items_packed} / ${m.items_total}`;
+  $('mWeight').textContent = m.weight_limit_kg
+    ? `${fmt(m.packed_weight_kg, 1)} / ${fmt(m.weight_limit_kg)} ${t('unit.kg')}` : `${fmt(m.packed_weight_kg, 1)} ${t('unit.kg')}`;
+  $('mFree').textContent = `${fmt(m.unused_volume_cm3 / 1000, 1)} L`;
+  const notes = $('metricNotes');
+  notes.innerHTML = '';
+  if (m.squeezed_items) notes.append(el('span', { class: 'pill', title: t('m.squeezedTitle') }, t('m.squeezed', { n: m.squeezed_items })));
+  if (m.priority_items) {
+    notes.append(el('span', { class: 'pill' }, t('m.onTop', { a: m.priority_items - m.priority_buried, b: m.priority_items })));
+  }
+  notes.append(el('span', { class: 'pill', title: m.strategy }, t('m.tried', { n: fmt(m.attempts, 0), s: fmt(layout.elapsed_s ?? 0, 1) })));
+
+  if (layout.unpacked.length) {
+    const n = layout.unpacked.length;
+    const hint = t(state.allowSqueeze ? 'banner.hint' : 'banner.hintNoSq');
+    showBanner(`<b>${n === 1 ? t('banner.didntFit1') : t('banner.didntFit', { n })}</b> ${hint}<ul>${
+      layout.unpacked.slice(0, 6).map((u) => `<li>${escapeHtml(stepName(u))}: ${escapeHtml(reasonText(u.reason))}</li>`).join('')
+    }${n > 6 ? `<li>${t('banner.more', { n: n - 6 })}</li>` : ''}</ul>`);
+  } else {
+    $('unpackedBanner').hidden = true;
+  }
+  renderSteps(layout);
+  if (scene) markStep(Math.min(scene.stepCount, Math.ceil(scene.t - 1e-6)));
+}
+
+/** Localised name of a packed / unpacked item. */
+function stepName(entry) {
+  return packedName(entry, state.catalogIds);
+}
+
+function describe(st) {
+  const layout = state.layout;
+  const names = Object.fromEntries(layout.steps.map((s) => [s.id, stepName(s)]));
+  return describeStep(st, layout.suitcase, (id) => names[id] || id);
+}
+
+function suitcaseTitle(s) {
+  const preset = state.catalog.suitcases.find((x) => x.name === s.name);
+  return preset ? catalogName('suitcases', preset.id, preset.name) : (s.name === 'Custom suitcase' ? t('suitcase.custom') : s.name);
 }
 
 function showBanner(html) {
@@ -503,21 +533,18 @@ function stepThumb(st, lazy = true) {
   return img;
 }
 
-function stepText(st) {
-  return capitalize(st.instruction.replace(`Place ${st.name} `, '').replace(/\.$/, ''));
-}
 
 function renderSteps(layout) {
   const ol = $('stepList');
   ol.innerHTML = '';
   for (const st of layout.steps) {
     const badges = [];
-    if (st.squeezed_pct) badges.push(el('span', { class: 'badge soft' }, `squeezed ${st.squeezed_pct}%`));
-    if (st.priority) badges.push(el('span', { class: 'badge first' }, 'need it first'));
-    if (st.fragile) badges.push(el('span', { class: 'badge fragile' }, 'fragile'));
+    if (st.squeezed_pct) badges.push(el('span', { class: 'badge soft' }, t('badge.squeezed', { n: st.squeezed_pct })));
+    if (st.priority) badges.push(el('span', { class: 'badge first' }, t('badge.first')));
+    if (st.fragile) badges.push(el('span', { class: 'badge fragile' }, t('badge.fragile')));
     ol.append(el('li', { 'data-step': st.step, onclick: () => scene && scene.showStep(st.step) },
       el('span', { class: 'n' }, String(st.step)), stepThumb(st),
-      el('div', {}, el('div', { class: 'title' }, st.name), el('div', { class: 'how' }, stepText(st)),
+      el('div', {}, el('div', { class: 'title' }, stepName(st)), el('div', { class: 'how' }, describe(st).how),
         badges.length ? el('div', { class: 'badges' }, badges) : null)));
   }
 }
@@ -530,7 +557,7 @@ function markStep(n) {
   }
   const cur = $('stepList').querySelector('li.current');
   if (cur) cur.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-  $('stepLabel').textContent = `Step ${n} / ${state.layout ? state.layout.steps.length : 0}`;
+  $('stepLabel').textContent = t('player.step', { n, total: state.layout ? state.layout.steps.length : 0 });
 }
 
 // -- print checklist --------------------------------------------------------- //
@@ -548,14 +575,14 @@ function printChecklist() {
   const view = $('printView');
   view.innerHTML = '';
   view.append(
-    el('h1', {}, 'Packing checklist'),
-    el('p', { class: 'sub' }, `${s.name} · ${fmt(s.length)}×${fmt(s.width)}×${fmt(s.height)} cm · ${new Date().toLocaleDateString()}`),
-    hero ? el('img', { class: 'hero', src: hero, alt: 'The packed suitcase' }) : null,
+    el('h1', {}, t('print.title')),
+    el('p', { class: 'sub' }, `${suitcaseTitle(s)} · ${fmt(s.length)}×${fmt(s.width)}×${fmt(s.height)} ${t('unit.cm')} · ${new Date().toLocaleDateString(lang)}`),
+    hero ? el('img', { class: 'hero', src: hero, alt: t('print.alt') }) : null,
     el('div', { class: 'facts' },
-      el('div', {}, el('b', {}, `${fmt(m.volume_efficiency_pct, 1)}%`), ' space used'),
-      el('div', {}, el('b', {}, `${m.items_packed}/${m.items_total}`), ' items'),
-      el('div', {}, el('b', {}, `${fmt(m.packed_weight_kg, 1)} kg`), m.weight_limit_kg ? ` of ${fmt(m.weight_limit_kg)} kg` : ''),
-      m.squeezed_items ? el('div', {}, el('b', {}, String(m.squeezed_items)), ' squeezed') : null),
+      el('div', {}, el('b', {}, `${fmt(m.volume_efficiency_pct, 1)}%`), ` ${t('print.space')}`),
+      el('div', {}, el('b', {}, `${m.items_packed}/${m.items_total}`), ` ${t('print.items')}`),
+      el('div', {}, el('b', {}, `${fmt(m.packed_weight_kg, 1)} ${t('unit.kg')}`), m.weight_limit_kg ? ` ${t('print.of', { max: fmt(m.weight_limit_kg) })}` : ''),
+      m.squeezed_items ? el('div', {}, el('b', {}, String(m.squeezed_items)), ` ${t('print.squeezed')}`) : null),
   );
   const thumbs = [];
   const rows = layout.steps.map((st) => {
@@ -566,11 +593,11 @@ function printChecklist() {
       el('td', {}, el('span', { class: 'box' })),
       el('td', { class: 'n' }, String(st.step)),
       el('td', {}, img),
-      el('td', {}, el('b', {}, st.name), el('br'), stepText(st)));
+      el('td', {}, el('b', {}, stepName(st)), el('br'), describe(st).how));
   });
   view.append(el('table', {}, el('tbody', {}, rows)));
   if (layout.unpacked.length) {
-    view.append(el('p', { class: 'left' }, el('b', {}, "Didn't fit: "), layout.unpacked.map((u) => u.name).join(', ')));
+    view.append(el('p', { class: 'left' }, el('b', {}, `${t('print.didntFit')} `), layout.unpacked.map(stepName).join(', ')));
   }
   // wait (briefly) for the thumbnails to be drawn, then open the print dialog
   const started = performance.now();
@@ -638,7 +665,7 @@ function bindControls() {
 
   // saved trips & sharing
   $('saveTripBtn').addEventListener('click', () => {
-    if (!selectedList().length) { toast('Add some items first, then save the trip.'); return; }
+    if (!selectedList().length) { toast(t('toast.needItemsSave')); return; }
     $('saveTripForm').hidden = false;
     $('tripName').focus();
   });
@@ -652,7 +679,7 @@ function bindControls() {
     await saveCurrentTrip(name);
   });
   $('shareBtn').addEventListener('click', () => {
-    if (!selectedList().length) { toast('Add some items first, then share.'); return; }
+    if (!selectedList().length) { toast(t('toast.needItemsShare')); return; }
     $('openForm').hidden = true;
     $('sharePanel').hidden = false;
     $('shareOut').value = shareText();
@@ -660,14 +687,13 @@ function bindControls() {
   });
   $('copyShareBtn').addEventListener('click', async () => {
     const text = $('shareOut').value;
-    const what = backend.mode === 'server' ? 'Link' : 'Trip code';
     try {
       await navigator.clipboard.writeText(text);
-      toast(`${what} copied. Whoever opens it gets this suitcase and item list.`);
+      toast(t(backend.mode === 'server' ? 'toast.copiedLink' : 'toast.copiedCode'));
     } catch {
       $('shareOut').focus();
       $('shareOut').select();
-      toast('Press Ctrl+C (or ⌘C) to copy.');
+      toast(t('toast.pressCopy'));
     }
   });
   $('openSharedBtn').addEventListener('click', () => {
@@ -684,16 +710,16 @@ function bindControls() {
       refreshAll();
       $('openForm').hidden = true;
       $('openCode').value = '';
-      toast('Opened the shared trip. Press "Pack my suitcase" to see it.');
+      toast(t('toast.opened'));
     } catch {
-      toast("That doesn't look like a share link or trip code.");
+      toast(t('toast.badCode'));
     }
   });
 
   $('copyBtn').addEventListener('click', async () => {
     if (!state.layout) return;
-    const text = state.layout.steps.map((s) => `${s.step}. ${s.instruction}`).join('\n');
-    try { await navigator.clipboard.writeText(text); toast('Steps copied'); } catch { toast("Couldn't copy"); }
+    const text = state.layout.steps.map((st) => `${st.step}. ${describe(st).full}`).join('\n');
+    try { await navigator.clipboard.writeText(text); toast(t('toast.stepsCopied')); } catch { toast(t('toast.copyFail')); }
   });
   $('printBtn').addEventListener('click', printChecklist);
 
@@ -731,8 +757,8 @@ function bindControls() {
       if (i < 0) { tip.hidden = true; return; }
       const st = scene.items[i].step;
       const rect = canvas.getBoundingClientRect();
-      const extra = [st.squeezed_pct ? `squeezed ${st.squeezed_pct}%` : '', st.priority ? 'need it first' : ''].filter(Boolean).join(' · ');
-      tip.textContent = `${st.step}. ${st.name} · ${st.size.map((v) => fmt(v)).join('×')} cm${extra ? ` · ${extra}` : ''}`;
+      const extra = [st.squeezed_pct ? t('badge.squeezed', { n: st.squeezed_pct }) : '', st.priority ? t('badge.first') : ''].filter(Boolean).join(' · ');
+      tip.textContent = `${st.step}. ${stepName(st)} · ${st.size.map((v) => fmt(v)).join('×')} ${t('unit.cm')}${extra ? ` · ${extra}` : ''}`;
       tip.style.left = `${e.clientX - rect.left}px`;
       tip.style.top = `${e.clientY - rect.top}px`;
       tip.hidden = false;
@@ -747,8 +773,46 @@ function bindControls() {
   });
 }
 
-const capitalize = (s) => s.charAt(0).toUpperCase() + s.slice(1);
 const escapeHtml = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+// -- settings page & language ------------------------------------------------ //
+function renderChrome() {
+  if (!backend) return;
+  $('modeBadge').textContent = t(backend.mode === 'server' ? 'mode.server' : 'mode.browser');
+  $('modeBadge').title = t(backend.mode === 'server' ? 'mode.serverTitle' : 'mode.browserTitle');
+  $('search').placeholder = t('search.ph', { n: state.catalog.items.length });
+}
+
+function renderLanguageOptions() {
+  const box = $('langOptions');
+  box.innerHTML = '';
+  for (const l of LANGS) {
+    box.append(el('button', {
+      type: 'button', class: 'lang-option', role: 'radio', 'aria-checked': String(l.code === lang), lang: l.code,
+      onclick: () => setLang(l.code),
+    }, el('span', { class: 'dot', 'aria-hidden': 'true' }), el('span', {}, el('b', {}, l.label), el('small', {}, l.sample))));
+  }
+}
+
+onLangChange(() => {
+  applyStatic();
+  renderLanguageOptions();
+  if (!state.catalog) return;
+  renderChrome();
+  renderSuitcases(); renderSwatches(); renderProfiles(); renderCategories(); renderItems();
+  renderCustomModelOptions(); renderTrips(); updateSummary();
+  if (state.layout) renderResultText(state.layout);
+  toast(t('toast.lang'));
+});
+
+$('settingsBtn').addEventListener('click', () => {
+  const d = $('settingsDialog');
+  if (typeof d.showModal === 'function') d.showModal(); else d.setAttribute('open', '');
+});
+$('settingsDialog').addEventListener('click', (e) => {
+  // clicking the dimmed backdrop closes the page
+  if (e.target === $('settingsDialog')) $('settingsDialog').close();
+});
 
 // -- install as an app (Chrome / Edge) and offline support ------------------- //
 let installPrompt = null;
@@ -759,7 +823,7 @@ window.addEventListener('beforeinstallprompt', (e) => {
 });
 window.addEventListener('appinstalled', () => {
   $('installBtn').hidden = true;
-  toast('Installed. Open "Smart Packing Assistant" from your Start menu or desktop.');
+  toast(t('toast.installed'));
 });
 $('installBtn').addEventListener('click', async () => {
   if (!installPrompt) return;
@@ -774,5 +838,5 @@ if ('serviceWorker' in navigator && window.isSecureContext && location.protocol.
 
 init().catch((err) => {
   console.error(err);
-  $('emptyState').innerHTML = `<h3>Couldn't start</h3><p>${escapeHtml(err.message)}.</p>`;
+  $('emptyState').innerHTML = `<h3>${t('err.start')}</h3><p>${escapeHtml(err.message)}.</p>`;
 });

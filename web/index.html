@@ -16,16 +16,19 @@
     <div class="brand">
       <svg viewBox="0 0 32 32" aria-hidden="true"><rect x="5" y="9" width="22" height="18" rx="4"/><path d="M12 9V6a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v3"/><path class="stripe" d="M11 14v8M21 14v8"/></svg>
       <div>
-        <h1>Smart Packing Assistant</h1>
-        <p>Pick what you're bringing. We'll find the tightest, most stable way to pack it.</p>
+        <h1 data-i18n="app.title">Smart Packing Assistant</h1>
+        <p data-i18n="app.tagline">Pick what you're bringing. We'll find the tightest, most stable way to pack it.</p>
       </div>
     </div>
     <div class="top-actions">
       <button class="btn secondary install-btn" id="installBtn" type="button" hidden>
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg>
-        Install app
+        <span data-i18n="top.install">Install app</span>
       </button>
       <span class="mode" id="modeBadge"></span>
+      <button class="icon-btn settings-btn" id="settingsBtn" type="button" data-i18n-title="top.settings" data-i18n-aria="top.settings" title="Settings" aria-label="Settings">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
+      </button>
     </div>
   </header>
 
@@ -33,44 +36,44 @@
     <!-- ============================ left: choices ============================ -->
     <aside class="panel" id="panel">
       <section class="block">
-        <h2><span class="num">1</span> Your suitcase</h2>
-        <div class="suitcases" id="suitcases" role="radiogroup" aria-label="Suitcase size"></div>
+        <h2><span class="num">1</span> <span data-i18n="s1.title">Your suitcase</span></h2>
+        <div class="suitcases" id="suitcases" role="radiogroup" data-i18n-aria="s1.sizes" aria-label="Suitcase size"></div>
         <div class="dims" id="dims">
-          <label>Length<input type="number" id="dimL" min="10" max="150" step="1"><span>cm</span></label>
-          <label>Width<input type="number" id="dimW" min="10" max="100" step="1"><span>cm</span></label>
-          <label>Height<input type="number" id="dimH" min="5" max="80" step="1"><span>cm</span></label>
-          <label>Max<input type="number" id="dimKg" min="0" max="50" step="0.5"><span>kg</span></label>
+          <label><span data-i18n="s1.length">Length</span><input type="number" id="dimL" min="10" max="150" step="1"><span data-i18n="unit.cm">cm</span></label>
+          <label><span data-i18n="s1.width">Width</span><input type="number" id="dimW" min="10" max="100" step="1"><span data-i18n="unit.cm">cm</span></label>
+          <label><span data-i18n="s1.height">Height</span><input type="number" id="dimH" min="5" max="80" step="1"><span data-i18n="unit.cm">cm</span></label>
+          <label><span data-i18n="s1.max">Max</span><input type="number" id="dimKg" min="0" max="50" step="0.5"><span data-i18n="unit.kg">kg</span></label>
         </div>
-        <p class="hint">Inside measurements. Edit them to match your own bag.</p>
-        <div class="swatches" id="swatches" aria-label="Suitcase colour"></div>
+        <p class="hint" data-i18n="s1.hint">Inside measurements. Edit them to match your own bag.</p>
+        <div class="swatches" id="swatches" data-i18n-aria="s1.colour" aria-label="Suitcase colour"></div>
       </section>
 
       <section class="block">
-        <h2><span class="num">2</span> Start from a trip</h2>
+        <h2><span class="num">2</span> <span data-i18n="s2.title">Start from a trip</span></h2>
         <div class="chips" id="profiles"></div>
         <div class="my-trips">
           <div class="my-trips-head">
-            <h3>My trips</h3>
+            <h3 data-i18n="trips.mine">My trips</h3>
             <div class="my-trips-actions">
-              <button class="link" id="saveTripBtn" type="button">Save current</button>
+              <button class="link" id="saveTripBtn" type="button" data-i18n="trips.save">Save current</button>
               <span aria-hidden="true">·</span>
-              <button class="link" id="shareBtn" type="button">Share</button>
+              <button class="link" id="shareBtn" type="button" data-i18n="trips.share">Share</button>
               <span aria-hidden="true">·</span>
-              <button class="link" id="openSharedBtn" type="button">Open shared</button>
+              <button class="link" id="openSharedBtn" type="button" data-i18n="trips.open">Open shared</button>
             </div>
           </div>
           <div class="inline-form" id="sharePanel" hidden>
-            <input id="shareOut" readonly aria-label="Share code for this trip">
-            <button class="btn secondary" type="button" id="copyShareBtn">Copy</button>
+            <input id="shareOut" readonly data-i18n-aria="trips.codeAria" aria-label="Share code for this trip">
+            <button class="btn secondary" type="button" id="copyShareBtn" data-i18n="trips.copy">Copy</button>
           </div>
           <form id="openForm" class="inline-form" hidden>
-            <input id="openCode" placeholder="Paste a share link or trip code" aria-label="Share link or trip code" required>
-            <button class="btn secondary" type="submit">Open</button>
+            <input id="openCode" data-i18n-ph="trips.codePh" data-i18n-aria="trips.codePh" placeholder="Paste a share link or trip code" aria-label="Share link or trip code" required>
+            <button class="btn secondary" type="submit" data-i18n="trips.openBtn">Open</button>
           </form>
           <form id="saveTripForm" class="inline-form" hidden>
-            <input id="tripName" placeholder="Name it, e.g. Tokyo in March" maxlength="60" required>
-            <button class="btn secondary" type="submit">Save</button>
-            <button class="link" type="button" id="cancelSaveBtn">Cancel</button>
+            <input id="tripName" data-i18n-ph="trips.namePh" placeholder="Name it, e.g. Tokyo in March" maxlength="60" required>
+            <button class="btn secondary" type="submit" data-i18n="trips.saveBtn">Save</button>
+            <button class="link" type="button" id="cancelSaveBtn" data-i18n="trips.cancel">Cancel</button>
           </form>
           <div class="chips" id="myTrips"></div>
           <p class="hint" id="tripsHint"></p>
@@ -78,43 +81,43 @@
       </section>
 
       <section class="block items-block">
-        <h2><span class="num">3</span> What are you bringing?</h2>
+        <h2><span class="num">3</span> <span data-i18n="s3.title">What are you bringing?</span></h2>
         <div class="search">
           <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
-          <input type="search" id="search" placeholder="Search 89 items: shoes, laptop, towel…" autocomplete="off">
+          <input type="search" id="search" placeholder="Search items" autocomplete="off">
         </div>
         <div class="chips small" id="categories"></div>
         <div class="item-list" id="itemList"></div>
         <details class="custom" id="customBox">
-          <summary>+ Add your own item</summary>
+          <summary data-i18n="custom.add">+ Add your own item</summary>
           <form id="customForm" class="custom-form">
-            <label class="wide">Name<input name="name" required maxlength="40" placeholder="e.g. Board game"></label>
-            <label>Length<input name="length" type="number" min="1" max="150" step="0.5" required></label>
-            <label>Width<input name="width" type="number" min="1" max="150" step="0.5" required></label>
-            <label>Height<input name="height" type="number" min="0.5" max="80" step="0.5" required></label>
-            <label>Weight kg<input name="weight" type="number" min="0" max="30" step="0.05" value="0.5"></label>
-            <label class="wide">Looks like<select name="model" id="customModel"></select></label>
-            <label class="check"><input type="checkbox" name="fragile"> Fragile (nothing on top)</label>
-            <label class="check"><input type="checkbox" name="upright"> Keep upright</label>
-            <button type="submit" class="btn secondary wide">Add item</button>
+            <label class="wide"><span data-i18n="custom.name">Name</span><input name="name" required maxlength="40" data-i18n-ph="custom.namePh" placeholder="e.g. Board game"></label>
+            <label><span data-i18n="s1.length">Length</span><input name="length" type="number" min="1" max="150" step="0.5" required></label>
+            <label><span data-i18n="s1.width">Width</span><input name="width" type="number" min="1" max="150" step="0.5" required></label>
+            <label><span data-i18n="s1.height">Height</span><input name="height" type="number" min="0.5" max="80" step="0.5" required></label>
+            <label><span data-i18n="custom.weight">Weight kg</span><input name="weight" type="number" min="0" max="30" step="0.05" value="0.5"></label>
+            <label class="wide"><span data-i18n="custom.looks">Looks like</span><select name="model" id="customModel"></select></label>
+            <label class="check"><input type="checkbox" name="fragile"> <span data-i18n="custom.fragile">Fragile (nothing on top)</span></label>
+            <label class="check"><input type="checkbox" name="upright"> <span data-i18n="custom.upright">Keep upright</span></label>
+            <button type="submit" class="btn secondary wide" data-i18n="custom.submit">Add item</button>
           </form>
         </details>
       </section>
 
       <footer class="summary" id="summary">
         <div class="summary-row">
-          <div><strong id="sumCount">0 items</strong><span id="sumWeight"></span></div>
-          <button class="link" id="clearBtn" type="button">Clear</button>
+          <div><strong id="sumCount"></strong><span id="sumWeight"></span></div>
+          <button class="link" id="clearBtn" type="button" data-i18n="sum.clear">Clear</button>
         </div>
         <div class="fillbar" aria-hidden="true"><div id="fillBar"></div></div>
-        <p class="fill-note" id="fillNote">Add some items to get started.</p>
+        <p class="fill-note" id="fillNote"></p>
         <label class="toggle">
           <input type="checkbox" id="squeezeToggle" checked>
-          <span>Squeeze soft clothes if space is tight</span>
+          <span data-i18n="sum.squeeze">Squeeze soft clothes if space is tight</span>
         </label>
         <button class="btn primary" id="packBtn" type="button" disabled>
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12l5 5L20 7"/></svg>
-          Pack my suitcase
+          <span data-i18n="sum.pack">Pack my suitcase</span>
         </button>
       </footer>
     </aside>
@@ -122,24 +125,24 @@
     <!-- ============================ right: 3D stage ============================ -->
     <main class="stage no-steps">
       <div class="viewport" id="viewport">
-        <canvas id="scene" aria-label="3D view of the packed suitcase"></canvas>
+        <canvas id="scene" data-i18n-aria="stage.canvas" aria-label="3D view of the packed suitcase"></canvas>
 
         <div class="metrics" id="metrics" hidden>
-          <div class="metric big"><span class="label">Space used</span><span class="value" id="mEff">–</span></div>
-          <div class="metric"><span class="label">Items packed</span><span class="value" id="mItems">–</span></div>
-          <div class="metric"><span class="label">Weight</span><span class="value" id="mWeight">–</span></div>
-          <div class="metric"><span class="label">Free space</span><span class="value" id="mFree">–</span></div>
+          <div class="metric big"><span class="label" data-i18n="m.space">Space used</span><span class="value" id="mEff">–</span></div>
+          <div class="metric"><span class="label" data-i18n="m.items">Items packed</span><span class="value" id="mItems">–</span></div>
+          <div class="metric"><span class="label" data-i18n="m.weight">Weight</span><span class="value" id="mWeight">–</span></div>
+          <div class="metric"><span class="label" data-i18n="m.free">Free space</span><span class="value" id="mFree">–</span></div>
           <div class="metric-notes" id="metricNotes"></div>
         </div>
 
         <div class="view-tools">
-          <button class="icon-btn" id="xrayBtn" type="button" aria-pressed="true" title="See-through walls">
+          <button class="icon-btn" id="xrayBtn" type="button" aria-pressed="true" data-i18n-title="view.xray" data-i18n-aria="view.xray" title="See-through walls">
             <svg viewBox="0 0 24 24"><rect x="4" y="6" width="16" height="12" rx="2" stroke-dasharray="3 2"/></svg>
           </button>
-          <button class="icon-btn" id="topBtn" type="button" title="Top view">
+          <button class="icon-btn" id="topBtn" type="button" data-i18n-title="view.top" data-i18n-aria="view.top" title="Top view">
             <svg viewBox="0 0 24 24"><rect x="5" y="5" width="14" height="14" rx="2"/><path d="M12 9v6M9 12h6"/></svg>
           </button>
-          <button class="icon-btn" id="resetBtn" type="button" title="Reset view">
+          <button class="icon-btn" id="resetBtn" type="button" data-i18n-title="view.reset" data-i18n-aria="view.reset" title="Reset view">
             <svg viewBox="0 0 24 24"><path d="M4 12a8 8 0 1 0 3-6.2"/><path d="M4 4v4h4"/></svg>
           </button>
         </div>
@@ -147,31 +150,31 @@
         <div class="banner" id="unpackedBanner" hidden></div>
 
         <div class="empty" id="emptyState">
-          <h3>Your suitcase is empty</h3>
-          <p>Pick a trip or add items on the left, then press <b>Pack my suitcase</b>.
+          <h3 data-i18n="empty.title">Your suitcase is empty</h3>
+          <p data-i18n-html="empty.body">Pick a trip or add items on the left, then press <b>Pack my suitcase</b>.
              You'll see every item turn and drop into place, step by step.</p>
         </div>
 
         <div class="loading" id="loading" hidden>
           <div class="spinner"></div>
-          <p>Finding the best layout…</p>
-          <small id="loadingNote">Trying hundreds of arrangements</small>
+          <p data-i18n="loading.title">Finding the best layout…</p>
+          <small id="loadingNote"></small>
         </div>
 
         <div class="tooltip" id="tooltip" hidden></div>
-        <p class="gesture-hint">Drag to rotate · scroll to zoom · right-drag to pan · click an item</p>
+        <p class="gesture-hint" data-i18n="gesture">Drag to rotate · scroll to zoom · right-drag to pan · click an item</p>
       </div>
 
       <div class="player" id="player" hidden>
-        <button class="icon-btn" id="prevBtn" type="button" title="Previous step"><svg viewBox="0 0 24 24"><path d="M15 6l-6 6 6 6"/></svg></button>
-        <button class="play-btn" id="playBtn" type="button" title="Play / pause">
+        <button class="icon-btn" id="prevBtn" type="button" data-i18n-title="player.prev" data-i18n-aria="player.prev" title="Previous step"><svg viewBox="0 0 24 24"><path d="M15 6l-6 6 6 6"/></svg></button>
+        <button class="play-btn" id="playBtn" type="button" data-i18n-title="player.play" data-i18n-aria="player.play" title="Play / pause">
           <svg class="i-play" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
           <svg class="i-pause" viewBox="0 0 24 24"><path d="M7 5h4v14H7zM13 5h4v14h-4z"/></svg>
         </button>
-        <button class="icon-btn" id="nextBtn" type="button" title="Next step"><svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg></button>
-        <input type="range" id="scrub" min="0" max="1" step="0.001" value="0" aria-label="Animation position">
-        <span class="step-label" id="stepLabel">Step 0 / 0</span>
-        <select id="speed" aria-label="Speed">
+        <button class="icon-btn" id="nextBtn" type="button" data-i18n-title="player.next" data-i18n-aria="player.next" title="Next step"><svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg></button>
+        <input type="range" id="scrub" min="0" max="1" step="0.001" value="0" data-i18n-aria="player.scrub" aria-label="Animation position">
+        <span class="step-label" id="stepLabel"></span>
+        <select id="speed" data-i18n-aria="player.speed" aria-label="Speed">
           <option value="0.4">0.5×</option>
           <option value="0.8" selected>1×</option>
           <option value="1.6">2×</option>
@@ -181,17 +184,37 @@
 
       <section class="steps" id="stepsPanel" hidden>
         <div class="steps-head">
-          <h2>Packing steps</h2>
+          <h2 data-i18n="steps.title">Packing steps</h2>
           <div class="steps-actions">
-            <button class="link" id="copyBtn" type="button">Copy</button>
+            <button class="link" id="copyBtn" type="button" data-i18n="steps.copy">Copy</button>
             <span aria-hidden="true">·</span>
-            <button class="link" id="printBtn" type="button">Print checklist</button>
+            <button class="link" id="printBtn" type="button" data-i18n="steps.print">Print checklist</button>
           </div>
         </div>
         <ol id="stepList"></ol>
       </section>
     </main>
   </div>
+
+  <!-- ============================ settings page ============================ -->
+  <dialog class="settings" id="settingsDialog" aria-labelledby="settingsTitle">
+    <form method="dialog" class="settings-card">
+      <header class="settings-head">
+        <h2 id="settingsTitle" data-i18n="settings.title">Settings</h2>
+        <button class="icon-btn" value="close" data-i18n-title="settings.close" data-i18n-aria="settings.close" title="Close" aria-label="Close">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+        </button>
+      </header>
+      <fieldset class="settings-section">
+        <legend data-i18n="settings.language">Language</legend>
+        <p class="hint" data-i18n="settings.langHint">Changes the whole app, including item names and packing steps. Remembered on this device.</p>
+        <div class="lang-options" id="langOptions" role="radiogroup"></div>
+      </fieldset>
+      <footer class="settings-foot">
+        <button class="btn primary" value="done" data-i18n="settings.done">Done</button>
+      </footer>
+    </form>
+  </dialog>
 
   <div class="toast" id="toast" role="status" hidden></div>
   <section class="print-view" id="printView" aria-hidden="true"></section>
