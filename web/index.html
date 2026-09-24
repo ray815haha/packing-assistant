@@ -1,0 +1,201 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Smart Packing Assistant</title>
+  <link rel="icon" type="image/png" href="icons/favicon-32.png">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="manifest" href="manifest.webmanifest">
+  <meta name="theme-color" content="#0f766e">
+  <meta name="description" content="Pick what you're bringing and see exactly how to pack it, step by step in 3D.">
+  <link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <svg viewBox="0 0 32 32" aria-hidden="true"><rect x="5" y="9" width="22" height="18" rx="4"/><path d="M12 9V6a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v3"/><path class="stripe" d="M11 14v8M21 14v8"/></svg>
+      <div>
+        <h1>Smart Packing Assistant</h1>
+        <p>Pick what you're bringing. We'll find the tightest, most stable way to pack it.</p>
+      </div>
+    </div>
+    <div class="top-actions">
+      <button class="btn secondary install-btn" id="installBtn" type="button" hidden>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg>
+        Install app
+      </button>
+      <span class="mode" id="modeBadge"></span>
+    </div>
+  </header>
+
+  <div class="layout">
+    <!-- ============================ left: choices ============================ -->
+    <aside class="panel" id="panel">
+      <section class="block">
+        <h2><span class="num">1</span> Your suitcase</h2>
+        <div class="suitcases" id="suitcases" role="radiogroup" aria-label="Suitcase size"></div>
+        <div class="dims" id="dims">
+          <label>Length<input type="number" id="dimL" min="10" max="150" step="1"><span>cm</span></label>
+          <label>Width<input type="number" id="dimW" min="10" max="100" step="1"><span>cm</span></label>
+          <label>Height<input type="number" id="dimH" min="5" max="80" step="1"><span>cm</span></label>
+          <label>Max<input type="number" id="dimKg" min="0" max="50" step="0.5"><span>kg</span></label>
+        </div>
+        <p class="hint">Inside measurements. Edit them to match your own bag.</p>
+        <div class="swatches" id="swatches" aria-label="Suitcase colour"></div>
+      </section>
+
+      <section class="block">
+        <h2><span class="num">2</span> Start from a trip</h2>
+        <div class="chips" id="profiles"></div>
+        <div class="my-trips">
+          <div class="my-trips-head">
+            <h3>My trips</h3>
+            <div class="my-trips-actions">
+              <button class="link" id="saveTripBtn" type="button">Save current</button>
+              <span aria-hidden="true">·</span>
+              <button class="link" id="shareBtn" type="button">Share</button>
+              <span aria-hidden="true">·</span>
+              <button class="link" id="openSharedBtn" type="button">Open shared</button>
+            </div>
+          </div>
+          <div class="inline-form" id="sharePanel" hidden>
+            <input id="shareOut" readonly aria-label="Share code for this trip">
+            <button class="btn secondary" type="button" id="copyShareBtn">Copy</button>
+          </div>
+          <form id="openForm" class="inline-form" hidden>
+            <input id="openCode" placeholder="Paste a share link or trip code" aria-label="Share link or trip code" required>
+            <button class="btn secondary" type="submit">Open</button>
+          </form>
+          <form id="saveTripForm" class="inline-form" hidden>
+            <input id="tripName" placeholder="Name it, e.g. Tokyo in March" maxlength="60" required>
+            <button class="btn secondary" type="submit">Save</button>
+            <button class="link" type="button" id="cancelSaveBtn">Cancel</button>
+          </form>
+          <div class="chips" id="myTrips"></div>
+          <p class="hint" id="tripsHint"></p>
+        </div>
+      </section>
+
+      <section class="block items-block">
+        <h2><span class="num">3</span> What are you bringing?</h2>
+        <div class="search">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+          <input type="search" id="search" placeholder="Search 89 items: shoes, laptop, towel…" autocomplete="off">
+        </div>
+        <div class="chips small" id="categories"></div>
+        <div class="item-list" id="itemList"></div>
+        <details class="custom" id="customBox">
+          <summary>+ Add your own item</summary>
+          <form id="customForm" class="custom-form">
+            <label class="wide">Name<input name="name" required maxlength="40" placeholder="e.g. Board game"></label>
+            <label>Length<input name="length" type="number" min="1" max="150" step="0.5" required></label>
+            <label>Width<input name="width" type="number" min="1" max="150" step="0.5" required></label>
+            <label>Height<input name="height" type="number" min="0.5" max="80" step="0.5" required></label>
+            <label>Weight kg<input name="weight" type="number" min="0" max="30" step="0.05" value="0.5"></label>
+            <label class="wide">Looks like<select name="model" id="customModel"></select></label>
+            <label class="check"><input type="checkbox" name="fragile"> Fragile (nothing on top)</label>
+            <label class="check"><input type="checkbox" name="upright"> Keep upright</label>
+            <button type="submit" class="btn secondary wide">Add item</button>
+          </form>
+        </details>
+      </section>
+
+      <footer class="summary" id="summary">
+        <div class="summary-row">
+          <div><strong id="sumCount">0 items</strong><span id="sumWeight"></span></div>
+          <button class="link" id="clearBtn" type="button">Clear</button>
+        </div>
+        <div class="fillbar" aria-hidden="true"><div id="fillBar"></div></div>
+        <p class="fill-note" id="fillNote">Add some items to get started.</p>
+        <label class="toggle">
+          <input type="checkbox" id="squeezeToggle" checked>
+          <span>Squeeze soft clothes if space is tight</span>
+        </label>
+        <button class="btn primary" id="packBtn" type="button" disabled>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12l5 5L20 7"/></svg>
+          Pack my suitcase
+        </button>
+      </footer>
+    </aside>
+
+    <!-- ============================ right: 3D stage ============================ -->
+    <main class="stage no-steps">
+      <div class="viewport" id="viewport">
+        <canvas id="scene" aria-label="3D view of the packed suitcase"></canvas>
+
+        <div class="metrics" id="metrics" hidden>
+          <div class="metric big"><span class="label">Space used</span><span class="value" id="mEff">–</span></div>
+          <div class="metric"><span class="label">Items packed</span><span class="value" id="mItems">–</span></div>
+          <div class="metric"><span class="label">Weight</span><span class="value" id="mWeight">–</span></div>
+          <div class="metric"><span class="label">Free space</span><span class="value" id="mFree">–</span></div>
+          <div class="metric-notes" id="metricNotes"></div>
+        </div>
+
+        <div class="view-tools">
+          <button class="icon-btn" id="xrayBtn" type="button" aria-pressed="true" title="See-through walls">
+            <svg viewBox="0 0 24 24"><rect x="4" y="6" width="16" height="12" rx="2" stroke-dasharray="3 2"/></svg>
+          </button>
+          <button class="icon-btn" id="topBtn" type="button" title="Top view">
+            <svg viewBox="0 0 24 24"><rect x="5" y="5" width="14" height="14" rx="2"/><path d="M12 9v6M9 12h6"/></svg>
+          </button>
+          <button class="icon-btn" id="resetBtn" type="button" title="Reset view">
+            <svg viewBox="0 0 24 24"><path d="M4 12a8 8 0 1 0 3-6.2"/><path d="M4 4v4h4"/></svg>
+          </button>
+        </div>
+
+        <div class="banner" id="unpackedBanner" hidden></div>
+
+        <div class="empty" id="emptyState">
+          <h3>Your suitcase is empty</h3>
+          <p>Pick a trip or add items on the left, then press <b>Pack my suitcase</b>.
+             You'll see every item turn and drop into place, step by step.</p>
+        </div>
+
+        <div class="loading" id="loading" hidden>
+          <div class="spinner"></div>
+          <p>Finding the best layout…</p>
+          <small id="loadingNote">Trying hundreds of arrangements</small>
+        </div>
+
+        <div class="tooltip" id="tooltip" hidden></div>
+        <p class="gesture-hint">Drag to rotate · scroll to zoom · right-drag to pan · click an item</p>
+      </div>
+
+      <div class="player" id="player" hidden>
+        <button class="icon-btn" id="prevBtn" type="button" title="Previous step"><svg viewBox="0 0 24 24"><path d="M15 6l-6 6 6 6"/></svg></button>
+        <button class="play-btn" id="playBtn" type="button" title="Play / pause">
+          <svg class="i-play" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+          <svg class="i-pause" viewBox="0 0 24 24"><path d="M7 5h4v14H7zM13 5h4v14h-4z"/></svg>
+        </button>
+        <button class="icon-btn" id="nextBtn" type="button" title="Next step"><svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg></button>
+        <input type="range" id="scrub" min="0" max="1" step="0.001" value="0" aria-label="Animation position">
+        <span class="step-label" id="stepLabel">Step 0 / 0</span>
+        <select id="speed" aria-label="Speed">
+          <option value="0.4">0.5×</option>
+          <option value="0.8" selected>1×</option>
+          <option value="1.6">2×</option>
+          <option value="3.2">4×</option>
+        </select>
+      </div>
+
+      <section class="steps" id="stepsPanel" hidden>
+        <div class="steps-head">
+          <h2>Packing steps</h2>
+          <div class="steps-actions">
+            <button class="link" id="copyBtn" type="button">Copy</button>
+            <span aria-hidden="true">·</span>
+            <button class="link" id="printBtn" type="button">Print checklist</button>
+          </div>
+        </div>
+        <ol id="stepList"></ol>
+      </section>
+    </main>
+  </div>
+
+  <div class="toast" id="toast" role="status" hidden></div>
+  <section class="print-view" id="printView" aria-hidden="true"></section>
+
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>

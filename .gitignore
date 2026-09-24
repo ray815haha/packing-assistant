@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+.venv/
+output/
+*.blend1
+data/trips.json
+dist/
+_to_delete/

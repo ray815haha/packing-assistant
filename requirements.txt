@@ -1,0 +1,10 @@
+# Nothing to install: the packing engine and the web app (python app.py) use
+# only the Python standard library (3.10+). The 3D view is plain WebGL, so no
+# JavaScript libraries or internet connection are needed either.
+#
+# Optional extras:
+matplotlib>=3.7   # PNG preview from the command-line packer (main.py)
+pytest>=7.0       # nicer test runner; `python -m unittest discover tests` works without it
+#
+# Blender (3.6+) is only needed for blender/animate_packing.py and is installed
+# from https://www.blender.org, not with pip.

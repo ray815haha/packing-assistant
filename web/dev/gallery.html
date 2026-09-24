@@ -1,0 +1,38 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Model gallery</title>
+<style>html,body{margin:0;height:100%;background:#eee;font:12px sans-serif}canvas{width:100%;height:100%;display:block}
+.lbl{position:absolute;transform:translate(-50%,0);background:#fffc;padding:1px 4px;border-radius:3px;white-space:nowrap}</style></head>
+<body><canvas id="c"></canvas><div id="labels"></div>
+<script type="module">
+import { Renderer, OrbitCamera } from '../js/engine/renderer.js';
+import { mat4 } from '../js/engine/math.js';
+import { buildProductGeometry } from '../js/models.js';
+const q = new URLSearchParams(location.search);
+const cat = await (await fetch('../api/catalog')).json();
+let items = cat.items;
+if (q.get('cat')) items = items.filter(i => i.category === q.get('cat'));
+if (q.get('ids')) { const ids = q.get('ids').split(','); items = items.filter(i => ids.includes(i.id)); }
+const cols = +(q.get('cols') || 5), sp = +(q.get('sp') || 42);
+const r = new Renderer(document.getElementById('c'));
+const meshes = [];
+items.forEach((it, i) => {
+  const g = buildProductGeometry(it.model, it.length, it.width, it.height, it.color);
+  const x = (i % cols) * sp, y = -Math.floor(i / cols) * sp;
+  meshes.push(r.createMesh(g, mat4.translation(x, y, it.height / 2)));
+});
+const rows = Math.ceil(items.length / cols);
+const cx = (cols - 1) * sp / 2, cy = -(rows - 1) * sp / 2;
+const cam = new OrbitCamera({ target: [cx, cy, 0], distance: +(q.get('d') || Math.max(cols, rows) * sp * 1.25), azimuth: +(q.get('az') || -70), elevation: +(q.get('el') || 42) });
+r.render(meshes, cam);
+// labels
+const { viewProj } = cam.matrices(r.canvas.width / r.canvas.height);
+const lab = document.getElementById('labels');
+items.forEach((it, i) => {
+  const x = (i % cols) * sp, y = -Math.floor(i / cols) * sp - Math.max(it.width, 8) / 2 - 3;
+  const p = mat4.transformPoint(viewProj, x, y, 0);
+  const w = viewProj[3] * x + viewProj[7] * y + viewProj[15];
+  const d = document.createElement('div'); d.className = 'lbl'; d.textContent = it.id;
+  d.style.left = ((p[0] / w) * 0.5 + 0.5) * innerWidth + 'px'; d.style.top = ((-p[1] / w) * 0.5 + 0.5) * innerHeight + 'px';
+  lab.appendChild(d);
+});
+document.title = 'done ' + items.length;
+</script></body></html>
