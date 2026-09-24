@@ -1,0 +1,8 @@
+# Keep Windows line endings in the double-click launchers on every checkout
+# (cmd.exe needs them), and normalise everything else.
+* text=auto
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.png binary
+*.ico binary
+*.glb binary
