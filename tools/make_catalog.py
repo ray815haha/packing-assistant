@@ -198,11 +198,19 @@ for p in PROFILES:
     for b in p["bags"]:
         assert b in {s["id"] for s in SUITCASES}, (p["id"], b)
 
-out = {"categories": CATEGORIES, "suitcases": SUITCASES, "profiles": PROFILES, "items": items}
-path = Path(__file__).resolve().parent.parent / "data" / "catalog.json"
+# Detailed 3D models made by blender/make_models.py, one per model type
+# (web/models/types/<model>.glb). Types without one use the simple built-in shape.
+root = Path(__file__).resolve().parent.parent
+models = {i["model"] for i in items}
+model_files = {f.stem: f"models/types/{f.name}" for f in sorted((root / "web" / "models" / "types").glob("*.glb"))
+               if f.stem in models}
+
+out = {"categories": CATEGORIES, "suitcases": SUITCASES, "profiles": PROFILES, "items": items,
+       "model_files": model_files}
+path = root / "data" / "catalog.json"
 path.write_text(json.dumps(out, indent=1), encoding="utf-8")
 # Copy for the browser-only (hosted) version of the app, which has no API.
 web_copy = path.parent.parent / "web" / "data" / "catalog.json"
 web_copy.parent.mkdir(parents=True, exist_ok=True)
 web_copy.write_text(json.dumps(out, separators=(",", ":")), encoding="utf-8")
-print(f"{len(items)} items, {len(PROFILES)} profiles -> {path} (+ {web_copy.name} for the web)")
+print(f"{len(items)} items, {len(PROFILES)} profiles, {len(model_files)} 3D models -> {path} (+ {web_copy.name} for the web)")

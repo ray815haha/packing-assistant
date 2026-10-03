@@ -10,8 +10,12 @@ dropping into place, step by step.
 - **6 trip presets** (weekend, business, beach week, city break, two-week
   holiday, packing cubes) and **4 suitcase sizes**, or type in your own
 - **Your own items**: name, size, weight, what it looks like, fragile/upright
-- **3D animation with modelled products**, not boxes: folded T-shirts with
-  collars, jeans with pockets, sneakers with laces, laptops, bottles, cameras…
+- **3D animation with detailed product models**, not boxes: 40 models built
+  in Blender (folded T-shirts with ribbed collars, denim jeans with rivets,
+  sneakers with laces and mesh uppers, laptops, cameras, toiletry bags…)
+  with fabric, leather and metal textures, recoloured to match each item.
+  Every item in the trip presets has one; the rest use simpler built-in
+  shapes
 - **Metrics**: space used, items packed, weight vs. limit, free litres
 - **Step list** in plain English ("Place Sneakers lying flat in the
   front-left of the case, on top of Jeans"). Click a step or an item in 3D to
@@ -130,9 +134,30 @@ Differences from the version on your computer: saved trips stay in each
 visitor's browser, and custom `.glb` models must be committed into
 `web\models\`.
 
-## Use your own 3D models
+## 3D product models
 
-Any catalog item can use a real 3D model instead of the built-in one:
+The detailed models in `web\models\types\` (one per model type, e.g.
+`sneakers.glb` for every pair of shoes) are made by a Blender script, not
+by hand:
+
+```powershell
+& "C:\Program Files\Blender Foundation\Blender 5.2\blender.exe" --background --factory-startup --python blender\make_models.py
+& "...\blender.exe" --background --factory-startup --python blender\make_models.py -- sneakers jeans   # just these
+python tools\make_catalog.py   # so the app knows which types have a model
+```
+
+Each model is built at the size of a typical item and stretched to the
+exact size of whichever item uses it. Materials named `tint...` take the
+item's colour, so one model serves every colour. Textures are generated in
+the script, so the same script always gives the same files. To add a type,
+write a function in `blender/make_models.py` and add it to `MODELS`.
+
+Open `http://127.0.0.1:8765/dev/models.html` to see every model next to the
+simple shape it replaces (`?only=sneakers,jeans` for just some of them).
+
+### Use your own 3D models
+
+Any catalog item can use your own 3D model instead of the built-in one:
 
 1. In Blender, select the object, then choose **File → Export → glTF 2.0**.
    Set the format to **glTF Binary (.glb)**, tick **Limit to: Selected
@@ -159,7 +184,7 @@ python main.py                                   # data\sample_trip.json
 python main.py --input data\overpacked_trip.json
 python main.py --restarts 1000 --time-limit 30 --min-support 0.6
 python main.py --input data\two_bag_trip.json    # split across several bags
-python -m unittest discover tests                # 62 tests (JS engine tests need Node.js)
+python -m unittest discover tests                # 68 tests (JS engine tests need Node.js)
 ```
 
 It writes `output\layout.json`, `placement_log.txt` and (with matplotlib)
@@ -259,8 +284,11 @@ web/
   js/packer/                 JavaScript packing engine + Web Worker (online version)
   js/api.js                  talks to the Python server, or falls back to the JS engine
   data/catalog.json          copy of the catalog for the online version
-  models/                    drop custom .glb files here
-  dev/gallery.html           preview of every model
+  models/types/              detailed product models (made by blender/make_models.py)
+  models/                    drop your own .glb files here (named after the item id)
+  dev/gallery.html           preview of every simple built-in shape
+  dev/models.html            detailed models next to the shapes they replace
+blender/make_models.py       builds the detailed product models (web/models/types)
 blender/animate_packing.py   Blender animation from layout.json
 tests/                       engine, several-bag, balance, catalog and server tests
 ```
@@ -274,9 +302,7 @@ are the keys of `MODEL_BUILDERS` in `web/js/models.js`.
 
 ## Roadmap
 
-1. **Real product models.** Export your own shoes, shirt and so on from
-   Blender as .glb files into `web/models/`.
-2. **Accounts and sync.** Saved trips available on every device (needs a
+1. **Accounts and sync.** Saved trips available on every device (needs a
    hosted backend).
-3. **Exact solver.** Add an exact solver (for example CP-SAT) for small
+2. **Exact solver.** Add an exact solver (for example CP-SAT) for small
    lists, to measure how close the heuristic gets to the best possible.

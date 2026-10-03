@@ -111,6 +111,7 @@ for (const c of cases) {
     squeezed: layout.metrics.squeezed_items,
     buried: layout.metrics.priority_buried,
     models: [...new Set(layout.steps.map((s) => s.model))],
+    modelUrls: [...new Set(layout.steps.map((s) => s.model_url))],
     problems: problems(layout),
   });
 }

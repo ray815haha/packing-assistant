@@ -57,6 +57,11 @@ class JsEngineTests(unittest.TestCase):
                 if bal and bal["wheels"]:
                     self.assertLessEqual(bal["along"], 0.5, name)  # turned wheels-down
 
+    def test_preset_items_get_their_detailed_model(self):
+        for name in ("weekend", "business", "beach", "city", "two_weeks", "cubes"):
+            urls = self.report[name]["modelUrls"]
+            self.assertTrue(urls and all(u and u.startswith("models/types/") for u in urls), (name, urls))
+
     def test_custom_items_keep_their_model(self):
         self.assertIn("gift", self.report["custom_and_priority_override"]["models"])
 

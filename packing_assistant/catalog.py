@@ -85,8 +85,14 @@ def _trip_items(catalog: dict[str, Any], request: dict[str, Any]) -> list[Item]:
 
 def enrich_layout(layout: dict[str, Any], catalog: dict[str, Any], request: dict[str, Any],
                   models: Optional[dict[str, str]] = None) -> dict[str, Any]:
-    """Attach model / colour info to every step so the browser can draw real products."""
+    """Attach model / colour info to every step so the browser can draw real products.
+
+    The 3D model is, in order: the user's own web/models/<item id>.glb, the
+    entry's "model_file", the detailed model for its type (catalog
+    "model_files", made by blender/make_models.py), or none (the browser then
+    draws its simple built-in shape)."""
     by_id = {e["id"]: e for e in catalog["items"]}
+    type_files = catalog.get("model_files", {})
     for c in request.get("custom_items", []):
         by_id.setdefault(str(c.get("id")), c)
     models = models if models is not None else custom_models()
@@ -98,7 +104,7 @@ def enrich_layout(layout: dict[str, Any], catalog: dict[str, Any], request: dict
             "catalog_id": base,
             "model": entry.get("model", "box"),
             "hex_color": entry.get("color", "#8899aa"),
-            "model_url": models.get(base) or entry.get("model_file"),
+            "model_url": models.get(base) or entry.get("model_file") or type_files.get(entry.get("model", "box")),
             "icon_model": entry.get("model", "box"),
         }
 

@@ -2,16 +2,64 @@
 //
 // Supports: triangle meshes, node hierarchies (matrix or TRS), indexed and
 // non-indexed geometry, missing normals (computed), baseColorFactor and
-// baseColorTexture (PNG/JPEG embedded in the .glb).
+// baseColorTexture (PNG/JPEG embedded in the .glb). Materials whose name
+// starts with "tint" take the item's colour (see tintParts): the built-in
+// models in web/models/types use that, so one model serves every colour.
 // Not supported: Draco/meshopt compression, skinning, morph targets. Export
 // from Blender with File > Export > glTF 2.0, format "glTF Binary (.glb)" and
 // compression off.
 
-import { mat4 } from './math.js';
+import { mat4, hexToRgb } from './math.js';
+import { Mesh } from './renderer.js';
 
 const COMPONENTS = { SCALAR: 1, VEC2: 2, VEC3: 3, VEC4: 4, MAT4: 16 };
 const TYPED = { 5120: Int8Array, 5121: Uint8Array, 5122: Int16Array, 5123: Uint16Array, 5125: Uint32Array, 5126: Float32Array };
 const NORM = { 5120: 127, 5121: 255, 5122: 32767, 5123: 65535 };
+
+const cache = new Map();
+
+/** loadGlb, fetching and decoding each file only once. */
+export function loadGlbCached(url) {
+  if (!cache.has(url)) {
+    const p = loadGlb(url);
+    p.catch(() => cache.delete(url)); // let a later call try again
+    cache.set(url, p);
+  }
+  return cache.get(url);
+}
+
+/** Parts with "tint" materials take the item's colour (times their own). */
+export function tintParts(parts, hex) {
+  if (!hex) return parts;
+  const srgb = hexToRgb(hex);
+  // the renderer reads a textured part's colour as linear (as glTF does), and
+  // an untextured one as sRGB (like the built-in shapes)
+  const linear = srgb.map((v) => v ** 2.2);
+  return parts.map((p) => {
+    if (!p.tint) return p;
+    const c = p.image ? linear : srgb;
+    return { ...p, baseColor: [p.baseColor[0] * c[0], p.baseColor[1] * c[1], p.baseColor[2] * c[2], p.baseColor[3]] };
+  });
+}
+
+const textures = new WeakMap(); // renderer -> Map(image -> GL texture), shared by all items
+
+/** One mesh (with a child per part) from loaded / fitted parts. */
+export function meshFromParts(renderer, parts) {
+  if (!textures.has(renderer)) textures.set(renderer, new Map());
+  const texs = textures.get(renderer);
+  const parent = new Mesh(null);
+  parent.children = parts.map((p) => {
+    const m = renderer.createMesh(p);
+    if (p.image) {
+      if (!texs.has(p.image)) texs.set(p.image, renderer.createTexture(p.image));
+      m.texture = texs.get(p.image);
+      m.shine = p.baseColor[3];
+    }
+    return m;
+  });
+  return parent;
+}
 
 export async function loadGlb(url) {
   const res = await fetch(url);
@@ -121,6 +169,7 @@ export async function loadGlb(url) {
           indices: count > 65535 ? Uint32Array.from(idx) : Uint16Array.from(idx),
           baseColor: [...factor.slice(0, 3), Math.max(0.05, 1 - rough)],
           image: texIndex !== undefined ? images[texIndex] : null,
+          tint: /^tint/i.test(mat.name || ''),
         });
       }
     }

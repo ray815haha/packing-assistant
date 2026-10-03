@@ -2,7 +2,7 @@
 // Python server or an internet connection. Packing then runs in the browser
 // (JavaScript engine). API calls always go to the network.
 // Bump VERSION whenever the app's files change.
-const VERSION = 'spa-v7';
+const VERSION = 'spa-v8';
 const SHELL = [
   './',
   'css/app.css',

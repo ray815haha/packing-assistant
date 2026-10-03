@@ -1,10 +1,10 @@
 // The 3D packing view: one or more open bags side by side, product meshes and
 // the step-by-step animation.
 
-import { Renderer, OrbitCamera, Mesh } from './engine/renderer.js';
+import { Renderer, OrbitCamera } from './engine/renderer.js';
 import { mat4, clamp, easeInOut } from './engine/math.js';
 import { MeshBuilder } from './engine/geometry.js';
-import { loadGlb, fitParts } from './engine/glb.js';
+import { loadGlbCached, fitParts, tintParts, meshFromParts } from './engine/glb.js';
 import { buildProductGeometry } from './models.js';
 import { buildSuitcase } from './suitcase.js';
 
@@ -51,7 +51,6 @@ export class PackingScene {
     this.onTime = () => {};
     this.dirty = true;
     this._lastStep = -1;
-    this._glbCache = new Map();
     this.camera.attach(canvas, () => { this.dirty = true; });
     new ResizeObserver(() => { this.dirty = true; }).observe(canvas);
     this._last = performance.now();
@@ -194,21 +193,10 @@ export class PackingScene {
     const [L, W, H] = st.original_size;
     if (st.model_url) {
       try {
-        let parts = this._glbCache.get(st.model_url);
-        if (!parts) {
-          parts = loadGlb(st.model_url);
-          this._glbCache.set(st.model_url, parts);
-        }
-        const fitted = fitParts(await parts, L, W, H);
-        const parent = new Mesh(null);
-        parent.children = fitted.map((p) => {
-          const m = this.renderer.createMesh(p);
-          if (p.image) { m.texture = this.renderer.createTexture(p.image); m.shine = p.baseColor[3]; }
-          return m;
-        });
-        return parent;
+        const parts = tintParts(await loadGlbCached(st.model_url), st.hex_color);
+        return meshFromParts(this.renderer, fitParts(parts, L, W, H));
       } catch (err) {
-        console.warn(`Custom model for ${st.name} failed, using the built-in one:`, err);
+        console.warn(`3D model for ${st.name} failed, using the simple one:`, err);
       }
     }
     return this.renderer.createMesh(buildProductGeometry(st.model, L, W, H, st.hex_color));

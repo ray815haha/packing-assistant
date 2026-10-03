@@ -464,6 +464,12 @@ function renderItems() {
   if (!shown) list.append(el('p', { class: 'hint' }, q ? t('list.noMatch', { q: state.query }) : t('list.none')));
 }
 
+/** The 3D model file for an item (as the packing engine picks it), or null. */
+function modelUrl(it) {
+  const own = (state.catalog.custom_models || {})[it.id];
+  return own || it.model_file || (state.catalog.model_files || {})[it.model] || null;
+}
+
 /** Display name of a catalogue or custom item in the current language. */
 const itemLabel = (it) => (state.catalogIds && state.catalogIds.has(it.id) ? catalogName('items', it.id, it.name) : it.name);
 
@@ -473,7 +479,7 @@ function itemRow(it, isCustom = false) {
   const n = isCustom ? (it.quantity || 1) : (state.qty[it.id] || 0);
   const label = itemLabel(it);
   const img = el('img', { class: 'thumb', alt: '' });
-  thumbInto(img, it);
+  thumbInto(img, { ...it, model_url: modelUrl(it) });
   const out = el('output', {}, String(n));
   const setQty = (v) => {
     v = Math.max(0, Math.min(20, v));
@@ -759,7 +765,9 @@ function resetResult() {
 
 function stepThumb(st, lazy = true) {
   const img = el('img', { alt: '' });
-  thumbInto(img, { model: st.model, length: st.original_size[0], width: st.original_size[1], height: st.original_size[2], color: st.hex_color }, { lazy });
+  thumbInto(img, {
+    model: st.model, model_url: st.model_url, length: st.original_size[0], width: st.original_size[1], height: st.original_size[2], color: st.hex_color,
+  }, { lazy });
   return img;
 }
 

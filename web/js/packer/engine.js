@@ -792,10 +792,12 @@ export function packRequest(catalog, request, onProgress) {
   const all = { ...byId };
   for (const c of request.custom_items || []) if (!all[c.id]) all[c.id] = c;
   const models = catalog.custom_models || {};
+  const typeFiles = catalog.model_files || {};
   const info = (id) => {
     const base = id.split('#')[0];
     const e = all[base] || all[base.replace(/^custom_/, '')] || {};
-    return { catalog_id: base, model: e.model || 'box', hex_color: e.color || '#8899aa', model_url: models[base] || e.model_file || null };
+    const model = e.model || 'box';
+    return { catalog_id: base, model, hex_color: e.color || '#8899aa', model_url: models[base] || e.model_file || typeFiles[model] || null };
   };
   for (const st of layout.steps) Object.assign(st, info(st.id));
   for (const u of layout.unpacked) Object.assign(u, info(u.id));

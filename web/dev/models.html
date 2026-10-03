@@ -1,0 +1,54 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Product models</title>
+<style>html,body{margin:0;height:100%;background:#e9ebee;font:12px sans-serif}canvas{width:100%;height:100%;display:block}
+.lbl{position:absolute;transform:translate(-50%,0);background:#fffd;padding:1px 5px;border-radius:3px;white-space:nowrap}</style></head>
+<body><canvas id="c"></canvas><div id="labels"></div>
+<script type="module">
+// Every built-in .glb model (web/models/types) beside the simple shape it
+// replaces, in the colour of the first catalogue item that uses it.
+//   ?only=sneakers,jeans   just these     ?glb=0   only the simple shapes
+//   ?az=-60&el=35&d=...   camera          ?cols=4  grid width
+import { Renderer, OrbitCamera } from '../js/engine/renderer.js';
+import { mat4 } from '../js/engine/math.js';
+import { buildProductGeometry } from '../js/models.js';
+import { loadGlbCached, fitParts, tintParts, meshFromParts } from '../js/engine/glb.js';
+const q = new URLSearchParams(location.search);
+const cat = await (await fetch('../data/catalog.json')).json();
+const files = cat.model_files || {};
+let types = Object.keys(files);
+if (q.get('only')) types = q.get('only').split(',');
+const cols = +(q.get('cols') || 4), sp = +(q.get('sp') || 46);
+const r = new Renderer(document.getElementById('c'));
+const meshes = [], labels = [];
+for (const [i, type] of types.entries()) {
+  const it = cat.items.find((x) => x.model === type);
+  if (!it) continue;
+  const x = (i % cols) * sp * 2, y = -Math.floor(i / cols) * sp;
+  const at = (dx) => mat4.translation(x + dx, y, it.height / 2);
+  meshes.push(r.createMesh(buildProductGeometry(type, it.length, it.width, it.height, it.color), at(0)));
+  if (q.get('glb') !== '0' && files[type]) {
+    const m = meshFromParts(r, fitParts(tintParts(await loadGlbCached('../' + files[type]), it.color), it.length, it.width, it.height));
+    m.matrix = at(sp * 0.95);
+    meshes.push(m);
+  }
+  labels.push([x + sp * 0.45, y - Math.max(it.width, 8) / 2 - 4, type]);
+}
+const rows = Math.ceil(types.length / cols);
+const cx = (cols * 2 - 1) * sp / 2, cy = -(rows - 1) * sp / 2;
+const cam = new OrbitCamera({ target: [cx, cy, 0], distance: +(q.get('d') || Math.max(cols * 2, rows) * sp * 0.95), azimuth: +(q.get('az') || -70), elevation: +(q.get('el') || 42) });
+const draw = () => {
+  r.render(meshes, cam);
+  const { viewProj } = cam.matrices(r.canvas.width / r.canvas.height);
+  const box = document.getElementById('labels');
+  box.innerHTML = '';
+  for (const [x, y, text] of labels) {
+    const p = mat4.transformPoint(viewProj, x, y, 0);
+    const w = viewProj[3] * x + viewProj[7] * y + viewProj[15];
+    const d = document.createElement('div'); d.className = 'lbl'; d.textContent = text;
+    d.style.left = ((p[0] / w) * 0.5 + 0.5) * innerWidth + 'px'; d.style.top = ((-p[1] / w) * 0.5 + 0.5) * innerHeight + 'px';
+    box.appendChild(d);
+  }
+};
+draw();
+cam.attach(r.canvas, () => requestAnimationFrame(draw));
+document.title = 'done ' + types.length;
+</script></body></html>
