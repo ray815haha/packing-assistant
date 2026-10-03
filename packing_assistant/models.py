@@ -19,6 +19,8 @@ from .geometry import Box
 Dims = tuple[float, float, float]
 Perm = tuple[int, int, int]
 
+BAG_KINDS = ("checked", "cabin", "personal")
+
 
 @dataclass(frozen=True)
 class Suitcase:
@@ -27,11 +29,20 @@ class Suitcase:
     width: float
     height: float
     max_weight: Optional[float] = None  # kg; None = no limit
+    # Only used when packing several bags at once (see optimizer.MultiBagPacker):
+    kind: str = "checked"  # "checked" (hold), "cabin" (overhead locker) or "personal" (under the seat)
+    id: str = ""
 
     def __post_init__(self) -> None:
         for label, v in (("length", self.length), ("width", self.width), ("height", self.height)):
             if v <= 0:
                 raise ValueError(f"Suitcase {label} must be positive, got {v}")
+        if self.kind not in BAG_KINDS:
+            raise ValueError(f"Bag kind must be one of {BAG_KINDS}, got '{self.kind}'")
+
+    @property
+    def in_cabin(self) -> bool:
+        return self.kind != "checked"
 
     @property
     def dims(self) -> Dims:
@@ -56,6 +67,9 @@ class Item:
     squeeze: float = 0.0  # soft items: how much the thickness can be squashed (0.3 = by up to 30%)
     priority: bool = False  # "need it first": keep it on top, easy to reach
     natural: Optional[Dims] = None  # original size, set when the item has been squeezed
+    # Several bags only:
+    bag: Optional[str] = None  # id of the bag the user put it in (None = let the packer choose)
+    cabin: str = ""  # "required" (e.g. lithium batteries), "preferred" (valuables) or ""
 
     def __post_init__(self) -> None:
         for label, v in (("length", self.length), ("width", self.width), ("height", self.height)):
@@ -65,6 +79,8 @@ class Item:
             raise ValueError(f"Item '{self.id}' weight cannot be negative")
         if not 0 <= self.squeeze < 0.9:
             raise ValueError(f"Item '{self.id}' squeeze must be between 0 and 0.9")
+        if self.cabin not in ("", "required", "preferred"):
+            raise ValueError(f"Item '{self.id}' cabin must be 'required', 'preferred' or empty")
 
     @property
     def dims(self) -> Dims:

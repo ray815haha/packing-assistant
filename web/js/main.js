@@ -25,23 +25,31 @@ const fmt = (n, d = 1) => Number(n).toLocaleString(undefined, { maximumFractionD
 const PIN_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2l2.9 6.3 6.9.7-5.2 4.6 1.5 6.8L12 17l-6.1 3.4 1.5-6.8L2.2 9l6.9-.7z"/></svg>';
 
 const SHELL_COLORS = ['#2f4858', '#1f2937', '#9b2226', '#0f766e', '#c2a878', '#5b6cff'];
+// colours given to new bags, most distinct first, so bags are easy to tell apart
+const BAG_COLORS = ['#2f4858', '#0f766e', '#9b2226', '#5b6cff', '#c2a878', '#1f2937'];
 const STORE_KEY = 'spa-state-v1';
+const KINDS = ['checked', 'cabin', 'personal']; // in the hold, overhead locker, under the seat
+const MAX_BAGS = 3;
 
 const state = {
   catalog: null,
-  suitcaseId: 'carry_on',
-  dims: null,             // { length, width, height, max_weight }
-  shell: SHELL_COLORS[0],
+  bags: [],               // [{ uid, presetId, dims: { length, width, height, max_weight }, shell, kind }]
+  activeBag: 0,           // the bag being edited in step 1
   qty: {},                // catalog id -> quantity
   priority: {},           // catalog id -> true/false (overrides the catalog default)
+  assign: {},             // catalog id -> bag uid the user put it in (absent: the packer chooses)
   custom: [],             // user-defined items
   allowSqueeze: true,
   category: 'all',
   query: '',
   profile: null,
   layout: null,
+  packedBags: null,       // copy of the bags the current layout was packed into
   trips: [],
 };
+
+/** The bag being edited in step 1. */
+const bag = () => state.bags[state.activeBag];
 
 let scene;
 let backend;
@@ -64,8 +72,7 @@ async function init() {
   renderLanguageOptions();
   restore();
   const shared = readShareLink();
-  renderSuitcases();
-  renderSwatches();
+  renderBagEditor();
   renderProfiles();
   renderCategories();
   renderItems();
@@ -80,9 +87,12 @@ async function init() {
 
 // -- persistence (per-browser convenience only) ------------------------------ //
 function snapshot() {
+  const first = state.bags[0];
   return {
-    suitcaseId: state.suitcaseId, dims: state.dims, shell: state.shell, qty: state.qty,
-    priority: state.priority, custom: state.custom, allowSqueeze: state.allowSqueeze,
+    bags: state.bags.map(({ uid, presetId, dims, shell, kind }) => ({ uid, presetId, dims, shell, kind })),
+    // the first bag again, as older copies of the app (one suitcase) expect it
+    suitcaseId: first.presetId, dims: first.dims, shell: first.shell,
+    qty: state.qty, priority: state.priority, assign: state.assign, custom: state.custom, allowSqueeze: state.allowSqueeze,
   };
 }
 function save() {
@@ -92,30 +102,95 @@ function restore() {
   let saved = null;
   try { saved = JSON.parse(localStorage.getItem(STORE_KEY) || 'null'); } catch { saved = null; }
   if (saved) applySnapshot(saved);
-  if (!state.dims) state.dims = presetDims(state.suitcaseId);
+  if (!state.bags.length) state.bags = [makeBag('carry_on')];
 }
 function applySnapshot(s) {
   const ids = new Set(state.catalog.items.map((i) => i.id));
-  const num = (v) => (Number.isFinite(+v) && +v > 0 ? +v : null);
-  const dims = s.dims && num(s.dims.length) && num(s.dims.width) && num(s.dims.height)
-    ? { length: +s.dims.length, width: +s.dims.width, height: +s.dims.height, max_weight: num(s.dims.max_weight) }
-    : null;
-  state.suitcaseId = typeof s.suitcaseId === 'string' ? s.suitcaseId : state.suitcaseId;
-  state.dims = dims || presetDims(state.suitcaseId);
-  state.shell = SHELL_COLORS.includes(s.shell) ? s.shell : state.shell;
+  // older snapshots have one suitcase: suitcaseId, dims, shell
+  const bags = (Array.isArray(s.bags) && s.bags.length ? s.bags : [{ presetId: s.suitcaseId, dims: s.dims, shell: s.shell }])
+    .slice(0, MAX_BAGS).map(cleanBag).filter(Boolean);
+  const seen = new Set();
+  for (const b of bags) { if (seen.has(b.uid)) b.uid = newUid(); seen.add(b.uid); }
+  state.bags = bags.length ? bags : [makeBag('carry_on')];
+  state.activeBag = 0;
   state.qty = Object.fromEntries(Object.entries(s.qty || {}).filter(([k, v]) => ids.has(k) && +v > 0).map(([k, v]) => [k, Math.min(20, Math.round(+v))]));
   state.priority = Object.fromEntries(Object.entries(s.priority || {}).filter(([k]) => ids.has(k)).map(([k, v]) => [k, !!v]));
+  state.assign = Object.fromEntries(Object.entries(s.assign || {}).filter(([k, v]) => ids.has(k) && seen.has(v)));
   state.custom = Array.isArray(s.custom) ? s.custom.filter(validCustom).slice(0, 50) : [];
+  for (const c of state.custom) if (c.bag && !seen.has(c.bag)) delete c.bag;
   if (typeof s.allowSqueeze === 'boolean') state.allowSqueeze = s.allowSqueeze;
 }
 function validCustom(c) {
   return c && typeof c.name === 'string' && [c.length, c.width, c.height].every((v) => Number.isFinite(+v) && +v > 0 && +v <= 200);
 }
 
+const presetOf = (id) => state.catalog.suitcases.find((x) => x.id === id) || null;
 function presetDims(id) {
-  const s = state.catalog.suitcases.find((x) => x.id === id) || state.catalog.suitcases[1];
+  const s = presetOf(id) || state.catalog.suitcases[1];
   return { length: s.length, width: s.width, height: s.height, max_weight: s.max_weight };
 }
+const newUid = () => `b${Date.now().toString(36).slice(-5)}${Math.random().toString(36).slice(2, 6)}`;
+
+/** A new bag from a size preset, in a colour no other bag uses yet. */
+function makeBag(presetId, i = state.bags.length) {
+  const used = new Set(state.bags.map((b) => b.shell));
+  const preset = presetOf(presetId);
+  return {
+    uid: newUid(), presetId, dims: presetDims(presetId),
+    shell: BAG_COLORS.find((c) => !used.has(c)) || BAG_COLORS[i % BAG_COLORS.length],
+    kind: (preset && preset.kind) || 'checked',
+  };
+}
+
+function cleanBag(b, i) {
+  if (!b || typeof b !== 'object') return null;
+  const num = (v) => (Number.isFinite(+v) && +v > 0 ? +v : null);
+  const presetId = typeof b.presetId === 'string' ? b.presetId : 'carry_on';
+  const d = b.dims;
+  const dims = d && num(d.length) && num(d.width) && num(d.height)
+    ? { length: +d.length, width: +d.width, height: +d.height, max_weight: num(d.max_weight) }
+    : presetDims(presetId);
+  const preset = presetOf(presetId);
+  return {
+    uid: typeof b.uid === 'string' && /^[\w-]{1,20}$/.test(b.uid) ? b.uid : newUid(),
+    presetId, dims,
+    shell: SHELL_COLORS.includes(b.shell) ? b.shell : BAG_COLORS[i % BAG_COLORS.length],
+    kind: KINDS.includes(b.kind) ? b.kind : (preset && preset.kind) || 'checked',
+  };
+}
+
+/** The size preset a bag matches exactly, if any. */
+function presetMatch(b) {
+  const d = b.dims;
+  return state.catalog.suitcases.find((s) => s.length === d.length && s.width === d.width && s.height === d.height) || null;
+}
+
+/** Display name of bag i (of `count`) in the current language. */
+function bagTitle(b, i, count = state.bags.length) {
+  const preset = presetMatch(b);
+  if (preset) return catalogName('suitcases', preset.id, preset.name);
+  return count > 1 ? t('bag.n', { n: i + 1 }) : t('suitcase.custom');
+}
+
+/** Name sent to the packing engine (English; the steps are re-worded in the UI). */
+function engineBagName(b, i) {
+  const preset = presetMatch(b);
+  if (preset) return preset.name;
+  return state.bags.length > 1 ? `Bag ${i + 1}` : 'Custom suitcase';
+}
+
+/** How the 3D view draws each bag. */
+const bagLooks = (bags) => bags.map((b) => {
+  const preset = presetMatch(b);
+  return {
+    L: b.dims.length, W: b.dims.width, H: b.dims.height, color: b.shell,
+    style: preset ? preset.style : (b.kind === 'personal' ? 'soft' : 'hard'),
+  };
+});
+
+/** Same bags, sizes and kinds (colours may differ): an existing layout still holds. */
+const sameBags = (a, b) => !!a && a.length === b.length && a.every((x, i) => x.uid === b[i].uid && x.kind === b[i].kind
+  && ['length', 'width', 'height', 'max_weight'].every((k) => (x.dims[k] || null) === (b[i].dims[k] || null)));
 
 // -- share links ------------------------------------------------------------- //
 function encodeShare() {
@@ -154,24 +229,68 @@ function shareText() {
   return backend.mode === 'server' ? `${location.origin}${location.pathname}#t=${code}` : `SPA1:${code}`;
 }
 
-// -- suitcase ---------------------------------------------------------------- //
+// -- bags -------------------------------------------------------------------- //
+function renderBagEditor() {
+  renderBagTabs();
+  renderSuitcases();
+  renderKinds();
+  renderSwatches();
+}
+
+function renderBagTabs() {
+  const box = $('bagTabs');
+  box.innerHTML = '';
+  state.bags.forEach((b, i) => {
+    const name = bagTitle(b, i);
+    const active = i === state.activeBag;
+    box.append(el('span', { class: `bag-tab${active ? ' active' : ''}` },
+      el('button', {
+        type: 'button', role: 'tab', 'aria-selected': String(active), class: 'bag-tab-btn',
+        onclick: () => { state.activeBag = i; renderBagEditor(); },
+      }, el('span', { class: 'dot', style: `background:${b.shell}`, 'aria-hidden': 'true' }), name),
+      state.bags.length > 1
+        ? el('button', { type: 'button', class: 'x', 'aria-label': t('bag.remove', { name }), title: t('bag.remove', { name }), onclick: () => removeBag(i) }, '×')
+        : null));
+  });
+  if (state.bags.length < MAX_BAGS) {
+    box.append(el('button', { type: 'button', class: 'bag-add', title: t('bag.addTitle'), onclick: addBag }, t('bag.add')));
+  }
+  $('kindHint').hidden = state.bags.length < 2;
+}
+
 function renderSuitcases() {
   const box = $('suitcases');
   box.innerHTML = '';
+  const b = bag();
   const maxL = Math.max(...state.catalog.suitcases.map((s) => s.length));
   for (const s of state.catalog.suitcases) {
     const k = s.length / maxL;
     box.append(el('button', {
-      class: 'suitcase-opt', type: 'button', role: 'radio', 'aria-checked': String(state.suitcaseId === s.id),
-      onclick: () => { state.suitcaseId = s.id; state.dims = presetDims(s.id); renderSuitcases(); applySuitcase(); },
+      class: `suitcase-opt ${s.style || 'hard'}`, type: 'button', role: 'radio', 'aria-checked': String(b.presetId === s.id),
+      onclick: () => {
+        b.presetId = s.id; b.dims = presetDims(s.id); b.kind = s.kind || b.kind;
+        state.profile = null;
+        renderBagEditor(); renderProfilesPressed(); applySuitcase();
+      },
     },
     el('span', { class: 'glyph', style: `width:${Math.round(18 + 16 * k)}px;height:${Math.round(20 + 14 * k)}px` }),
     el('b', {}, catalogName('suitcases', s.id, s.name)), el('small', {}, `${s.length}×${s.width}×${s.height}`)));
   }
-  $('dimL').value = state.dims.length;
-  $('dimW').value = state.dims.width;
-  $('dimH').value = state.dims.height;
-  $('dimKg').value = state.dims.max_weight ?? '';
+  $('dimL').value = b.dims.length;
+  $('dimW').value = b.dims.width;
+  $('dimH').value = b.dims.height;
+  $('dimKg').value = b.dims.max_weight ?? '';
+}
+
+function renderKinds() {
+  const box = $('bagKind');
+  box.innerHTML = '';
+  for (const k of KINDS) {
+    box.append(el('button', {
+      type: 'button', role: 'radio', class: 'kind-opt', 'aria-checked': String(bag().kind === k), title: t(`kind.${k}Title`),
+      onclick: () => { bag().kind = k; renderKinds(); applySuitcase(); },
+    }, t(`kind.${k}`)));
+  }
 }
 
 function renderSwatches() {
@@ -179,23 +298,49 @@ function renderSwatches() {
   box.innerHTML = '';
   for (const c of SHELL_COLORS) {
     box.append(el('button', {
-      class: 'swatch', type: 'button', role: 'radio', 'aria-checked': String(state.shell === c), title: t('s1.colour'),
-      style: `background:${c}`, onclick: () => { state.shell = c; renderSwatches(); applySuitcase(); },
+      class: 'swatch', type: 'button', role: 'radio', 'aria-checked': String(bag().shell === c), title: t('s1.colour'),
+      style: `background:${c}`, onclick: () => { bag().shell = c; renderSwatches(); renderBagTabs(); renderItems(); applySuitcase(); },
     }));
   }
+}
+
+function addBag() {
+  if (state.bags.length >= MAX_BAGS) { toast(t('toast.bagLimit', { n: MAX_BAGS })); return; }
+  // the next bag people usually bring: something to carry on board, then a bigger case
+  const used = new Set(state.bags.map((b) => b.presetId));
+  const next = ['underseat', 'carry_on', 'medium', 'large'].find((id) => !used.has(id) && presetOf(id)) || 'underseat';
+  state.bags.push(makeBag(next));
+  state.activeBag = state.bags.length - 1;
+  state.profile = null;
+  bagsChanged();
+}
+
+function removeBag(i) {
+  const [gone] = state.bags.splice(i, 1);
+  for (const [k, v] of Object.entries(state.assign)) if (v === gone.uid) delete state.assign[k];
+  for (const c of state.custom) if (c.bag === gone.uid) delete c.bag;
+  state.activeBag = Math.min(state.activeBag, state.bags.length - 1);
+  state.profile = null;
+  bagsChanged();
+}
+
+function bagsChanged() {
+  renderBagEditor(); renderProfilesPressed(); renderItems();
+  applySuitcase();
 }
 
 function applySuitcase(clearLayout = true) {
   save();
   updateSummary();
   if (!scene) return;
-  scene.suitcaseColor = state.shell;
-  if (clearLayout && state.layout) {
-    const s = state.layout.suitcase;
-    if (s.length !== state.dims.length || s.width !== state.dims.width || s.height !== state.dims.height) resetResult();
+  if (clearLayout && state.layout && !sameBags(state.packedBags, state.bags)) resetResult();
+  if (state.layout) {
+    // same bags, maybe new colours: keep the packed items where they are
+    state.packedBags.forEach((p, i) => { p.shell = state.bags[i].shell; });
+    scene.setBags(bagLooks(state.packedBags));
+  } else {
+    scene.setBags(bagLooks(state.bags));
   }
-  scene.suitcase = null; // rebuild with the new colour/size
-  scene.setSuitcase(state.dims.length, state.dims.width, state.dims.height, state.shell);
 }
 
 // -- trips: presets and saved ------------------------------------------------ //
@@ -210,8 +355,16 @@ function renderProfiles() {
         state.profile = p.id;
         state.qty = { ...p.items };
         state.priority = {};
-        state.suitcaseId = p.suitcase;
-        state.dims = presetDims(p.suitcase);
+        state.assign = {};
+        // the preset's bags, keeping the colours already picked
+        const shells = state.bags.map((b) => b.shell);
+        state.bags = [];
+        for (const [i, id] of (p.bags || [p.suitcase]).entries()) {
+          const b = makeBag(id);
+          if (shells[i]) b.shell = shells[i];
+          state.bags.push(b);
+        }
+        state.activeBag = 0;
         refreshAll();
       },
     }, catalogName('profiles', p.id, p.name)));
@@ -237,7 +390,7 @@ function renderTrips() {
 
 function loadTrip(trip) {
   applySnapshot({ ...trip, dims: trip.suitcase, suitcaseId: trip.suitcaseId || 'custom' });
-  matchPreset();
+  for (const b of state.bags) matchPreset(b);
   state.profile = null;
   refreshAll();
   toast(t('toast.loaded', { name: trip.name }));
@@ -254,7 +407,10 @@ async function removeTrip(trip) {
 async function saveCurrentTrip(name) {
   const s = snapshot();
   try {
-    const saved = await backend.saveTrip({ name, suitcase: s.dims, suitcaseId: s.suitcaseId, shell: s.shell, qty: s.qty, priority: s.priority, custom: s.custom });
+    const saved = await backend.saveTrip({
+      name, suitcase: s.dims, suitcaseId: s.suitcaseId, shell: s.shell, qty: s.qty, priority: s.priority, custom: s.custom,
+      bags: s.bags, assign: s.assign,
+    });
     toast(t('toast.saved', { name: saved.name }));
   } catch (err) { toast(t('toast.saveFail', { msg: err.message })); }
   refreshTrips();
@@ -262,7 +418,7 @@ async function saveCurrentTrip(name) {
 
 function refreshAll() {
   save();
-  renderProfiles(); renderSuitcases(); renderSwatches(); renderCategories(); renderItems();
+  renderProfiles(); renderBagEditor(); renderCategories(); renderItems();
   $('squeezeToggle').checked = state.allowSqueeze;
   applySuitcase();
   updateSummary();
@@ -355,12 +511,31 @@ function itemRow(it, isCustom = false) {
   if (it.fragile) tags.push(el('span', { class: 'tag' }, t('tag.fragile')));
   if (it.upright) tags.push(el('span', { class: 'tag' }, t('tag.upright')));
   if (it.squeeze) tags.push(el('span', { class: 'tag soft', title: t('tag.softTitle', { n: Math.round(it.squeeze * 100) }) }, t('tag.soft')));
+  if (it.cabin === 'required') tags.push(el('span', { class: 'tag cabin', title: t('tag.cabinTitle') }, t('tag.cabin')));
   const row = el('div', { class: `item-row${n > 0 ? ' selected' : ''}` },
     img,
     el('div', {}, el('div', { class: 'name' }, label, ...tags),
-      el('div', { class: 'meta' }, `${fmt(it.length)}×${fmt(it.width)}×${fmt(it.height)} ${t('unit.cm')} · ${fmt(it.weight, 2)} ${t('unit.kg')}`)),
+      el('div', { class: 'meta' }, `${fmt(it.length)}×${fmt(it.width)}×${fmt(it.height)} ${t('unit.cm')} · ${fmt(it.weight, 2)} ${t('unit.kg')}`,
+        state.bags.length > 1 ? bagSelect(it, isCustom, label) : null)),
     el('div', { class: 'controls' }, pin, el('div', { class: 'stepper' }, minus, out, plus)));
   return row;
+}
+
+/** "Which bag?" for one item (shown once it's selected and there are several bags). */
+function bagSelect(it, isCustom, label) {
+  const current = isCustom ? it.bag : state.assign[it.id];
+  const sel = el('select', {
+    class: 'bag-sel', 'aria-label': t('item.bag', { name: label }), title: t('item.bag', { name: label }),
+    onchange: (e) => {
+      const v = e.target.value;
+      if (isCustom) { if (v) it.bag = v; else delete it.bag; } else if (v) state.assign[it.id] = v; else delete state.assign[it.id];
+      sel.classList.toggle('set', !!v);
+      save();
+    },
+  }, el('option', { value: '' }, t('item.bagAuto')), state.bags.map((b, i) => el('option', { value: b.uid }, bagTitle(b, i))));
+  sel.value = state.bags.some((b) => b.uid === current) ? current : '';
+  sel.classList.toggle('set', !!sel.value);
+  return sel;
 }
 
 function renderProfilesPressed() {
@@ -390,22 +565,24 @@ function updateSummary() {
   const count = rows.reduce((a, r) => a + r.q, 0);
   const vol = rows.reduce((a, r) => a + r.q * r.item.length * r.item.width * r.item.height, 0);
   const kg = rows.reduce((a, r) => a + r.q * r.item.weight, 0);
-  const d = state.dims;
-  const cap = d.length * d.width * d.height;
+  // all bags together
+  const cap = state.bags.reduce((a, b) => a + b.dims.length * b.dims.width * b.dims.height, 0);
+  const maxKg = state.bags.every((b) => b.dims.max_weight) ? state.bags.reduce((a, b) => a + b.dims.max_weight, 0) : null;
   const pct = cap ? (100 * vol) / cap : 0;
   $('sumCount').textContent = count === 1 ? t('sum.item') : t('sum.items', { n: count });
-  $('sumWeight').textContent = !count ? '' : d.max_weight
-    ? t('sum.weight', { kg: fmt(kg, 2), max: fmt(d.max_weight) }) : t('sum.weightNoMax', { kg: fmt(kg, 2) });
+  $('sumWeight').textContent = !count ? '' : maxKg
+    ? t('sum.weight', { kg: fmt(kg, 2), max: fmt(maxKg) }) : t('sum.weightNoMax', { kg: fmt(kg, 2) });
+  $('packLabel').textContent = t(state.bags.length > 1 ? 'sum.packBags' : 'sum.pack');
   const bar = $('fillBar');
   bar.style.width = `${Math.min(100, pct)}%`;
-  const overKg = d.max_weight && kg > d.max_weight;
+  const overKg = maxKg && kg > maxKg;
   const cls = pct > 100 || overKg ? 'over' : pct > 80 ? 'warn' : '';
   bar.className = cls;
   const note = $('fillNote');
   note.className = `fill-note ${cls}`;
   const p = fmt(pct, 0);
   if (!count) note.textContent = t('fill.empty');
-  else if (overKg) note.textContent = t('fill.overKg', { max: fmt(d.max_weight) });
+  else if (overKg) note.textContent = t('fill.overKg', { max: fmt(maxKg) });
   else if (pct > 100) note.textContent = t(state.allowSqueeze ? 'fill.overSq' : 'fill.over', { pct: p });
   else if (pct > 80) note.textContent = t(state.allowSqueeze ? 'fill.tightSq' : 'fill.tight', { pct: p });
   else note.textContent = t('fill.ok', { pct: p });
@@ -419,18 +596,26 @@ async function doPack() {
   const rows = selectedList();
   if (!rows.length) return;
   const count = rows.reduce((a, r) => a + r.q, 0);
+  const uids = new Set(state.bags.map((b) => b.uid));
+  const inBag = (uid) => (uids.has(uid) ? { bag: uid } : {});
   const body = {
-    suitcase: { name: suitcaseName(), ...state.dims, max_weight: state.dims.max_weight || null },
-    items: Object.entries(state.qty).map(([id, quantity]) => ({ id, quantity, ...(id in state.priority ? { priority: state.priority[id] } : {}) })),
-    custom_items: state.custom.map((c) => ({ ...c })),
+    bags: state.bags.map((b, i) => ({
+      id: b.uid, name: engineBagName(b, i), kind: b.kind, ...b.dims, max_weight: b.dims.max_weight || null,
+    })),
+    items: Object.entries(state.qty).map(([id, quantity]) => ({
+      id, quantity, ...(id in state.priority ? { priority: state.priority[id] } : {}), ...inBag(state.assign[id]),
+    })),
+    custom_items: state.custom.map(({ bag: b, ...c }) => ({ ...c, ...inBag(b) })),
     options: { time_limit: count > 30 ? 8 : 5, allow_squeeze: state.allowSqueeze },
   };
+  const packedBags = state.bags.map((b) => ({ ...b, dims: { ...b.dims } }));
   $('loading').hidden = false;
   $('loadingNote').textContent = t('loading.note', { n: count });
   $('packBtn').disabled = true;
   try {
     const data = await backend.pack(body, (n) => { $('loadingNote').textContent = t('loading.progress', { n: fmt(n, 0) }); });
     state.layout = data;
+    state.packedBags = packedBags;
     $('loading').hidden = true;
     await showResult(data);
   } catch (err) {
@@ -441,11 +626,14 @@ async function doPack() {
   }
 }
 
-function suitcaseName() {
-  const s = state.catalog.suitcases.find((x) => x.id === state.suitcaseId);
-  const d = state.dims;
-  const same = s && s.length === d.length && s.width === d.width && s.height === d.height;
-  return same ? s.name : 'Custom suitcase'; // sent to the engine; shown translated via suitcaseTitle()
+/** The bags of a layout (one entry for single-suitcase layouts). */
+const layoutBags = (layout) => layout.bags || [layout.suitcase];
+const multiBag = (layout) => layoutBags(layout).length > 1;
+
+/** Display name of bag i of the current layout. */
+function packedBagTitle(i) {
+  const bags = state.packedBags || state.bags;
+  return bags[i] ? bagTitle(bags[i], i, bags.length) : '';
 }
 
 async function showResult(layout) {
@@ -457,8 +645,7 @@ async function showResult(layout) {
   document.querySelector('.stage').classList.remove('no-steps');
   $('scrub').max = layout.steps.length;
   if (scene) {
-    scene.suitcaseColor = state.shell;
-    await scene.setLayout(layout);
+    await scene.setLayout(layout, bagLooks(state.packedBags));
     scene.frame();
     scene.play();
     syncPlayer();
@@ -473,6 +660,7 @@ function renderResultText(layout) {
   $('mWeight').textContent = m.weight_limit_kg
     ? `${fmt(m.packed_weight_kg, 1)} / ${fmt(m.weight_limit_kg)} ${t('unit.kg')}` : `${fmt(m.packed_weight_kg, 1)} ${t('unit.kg')}`;
   $('mFree').textContent = `${fmt(m.unused_volume_cm3 / 1000, 1)} L`;
+  renderBagCards(layout);
   const notes = $('metricNotes');
   notes.innerHTML = '';
   if (m.squeezed_items) notes.append(el('span', { class: 'pill', title: t('m.squeezedTitle') }, t('m.squeezed', { n: m.squeezed_items })));
@@ -481,17 +669,43 @@ function renderResultText(layout) {
   }
   notes.append(el('span', { class: 'pill', title: m.strategy }, t('m.tried', { n: fmt(m.attempts, 0), s: fmt(layout.elapsed_s ?? 0, 1) })));
 
+  const warn = layout.steps.filter((st) => st.cabin_warning);
   if (layout.unpacked.length) {
     const n = layout.unpacked.length;
     const hint = t(state.allowSqueeze ? 'banner.hint' : 'banner.hintNoSq');
     showBanner(`<b>${n === 1 ? t('banner.didntFit1') : t('banner.didntFit', { n })}</b> ${hint}<ul>${
       layout.unpacked.slice(0, 6).map((u) => `<li>${escapeHtml(stepName(u))}: ${escapeHtml(reasonText(u.reason))}</li>`).join('')
     }${n > 6 ? `<li>${t('banner.more', { n: n - 6 })}</li>` : ''}</ul>`);
+  } else if (warn.length) {
+    showBanner(`<b>${escapeHtml(t('banner.cabin', { items: warn.map(stepName).join(', ') }))}</b> ${t('banner.cabinHint')}`);
   } else {
     $('unpackedBanner').hidden = true;
   }
   renderSteps(layout);
   if (scene) markStep(Math.min(scene.stepCount, Math.ceil(scene.t - 1e-6)));
+}
+
+/** One card per bag (only with several bags): how full and heavy it is. Click to look at it. */
+function renderBagCards(layout) {
+  const box = $('bagCards');
+  box.innerHTML = '';
+  if (!multiBag(layout)) return;
+  layout.bags.forEach((b, i) => {
+    const m = b.metrics;
+    const looks = state.packedBags[i];
+    const over = b.max_weight && m.packed_weight_kg > b.max_weight;
+    box.append(el('button', {
+      type: 'button', class: 'bag-card', title: t('m.bagFocus'), onclick: () => scene && scene.focusBag(i),
+    },
+    el('span', { class: 'dot', style: `background:${looks ? looks.shell : BAG_COLORS[i]}`, 'aria-hidden': 'true' }),
+    el('span', { class: 'bag-card-text' },
+      el('b', {}, packedBagTitle(i)),
+      el('small', { class: over ? 'over' : '' }, [
+        t('m.bagItems', { n: m.items_packed }),
+        `${fmt(m.volume_efficiency_pct, 0)}%`,
+        b.max_weight ? `${fmt(m.packed_weight_kg, 1)}/${fmt(b.max_weight)} ${t('unit.kg')}` : `${fmt(m.packed_weight_kg, 1)} ${t('unit.kg')}`,
+      ].join(' · ')))));
+  });
 }
 
 /** Localised name of a packed / unpacked item. */
@@ -502,12 +716,8 @@ function stepName(entry) {
 function describe(st) {
   const layout = state.layout;
   const names = Object.fromEntries(layout.steps.map((s) => [s.id, stepName(s)]));
-  return describeStep(st, layout.suitcase, (id) => names[id] || id);
-}
-
-function suitcaseTitle(s) {
-  const preset = state.catalog.suitcases.find((x) => x.name === s.name);
-  return preset ? catalogName('suitcases', preset.id, preset.name) : (s.name === 'Custom suitcase' ? t('suitcase.custom') : s.name);
+  const i = st.bag || 0;
+  return describeStep(st, layoutBags(layout)[i], (id) => names[id] || id, multiBag(layout) ? packedBagTitle(i) : undefined);
 }
 
 function showBanner(html) {
@@ -518,13 +728,17 @@ function showBanner(html) {
 
 function resetResult() {
   state.layout = null;
+  state.packedBags = null;
   $('metrics').hidden = true;
   $('player').hidden = true;
   $('stepsPanel').hidden = true;
   $('unpackedBanner').hidden = true;
   $('emptyState').hidden = false;
   document.querySelector('.stage').classList.add('no-steps');
-  if (scene) scene.setLayout({ suitcase: { length: state.dims.length, width: state.dims.width, height: state.dims.height }, steps: [] });
+  if (scene) {
+    const bags = state.bags.map((b) => ({ length: b.dims.length, width: b.dims.width, height: b.dims.height }));
+    scene.setLayout({ bags, steps: [] }, bagLooks(state.bags));
+  }
 }
 
 function stepThumb(st, lazy = true) {
@@ -533,24 +747,59 @@ function stepThumb(st, lazy = true) {
   return img;
 }
 
+function stepBadges(st) {
+  const badges = [];
+  if (st.cabin_warning) badges.push(el('span', { class: 'badge warn', title: t('tag.cabinTitle') }, t('badge.cabinWarn')));
+  else if (st.cabin === 'required') badges.push(el('span', { class: 'badge cabin', title: t('tag.cabinTitle') }, t('badge.cabin')));
+  if (st.squeezed_pct) badges.push(el('span', { class: 'badge soft' }, t('badge.squeezed', { n: st.squeezed_pct })));
+  if (st.priority) badges.push(el('span', { class: 'badge first' }, t('badge.first')));
+  if (st.fragile) badges.push(el('span', { class: 'badge fragile' }, t('badge.fragile')));
+  return badges;
+}
+
+/** Steps grouped by bag: one heading per bag (only with several bags). */
+function bagGroups(layout) {
+  const groups = layoutBags(layout).map((b, i) => ({ i, bag: b, steps: [] }));
+  for (const st of layout.steps) groups[st.bag || 0].steps.push(st);
+  return groups.filter((g) => g.steps.length);
+}
+
+function bagMeta(g) {
+  const kg = g.steps.reduce((a, st) => a + st.weight_kg, 0);
+  return t('steps.bagMeta', { n: g.steps.length, kg: fmt(kg, 1) });
+}
 
 function renderSteps(layout) {
   const ol = $('stepList');
   ol.innerHTML = '';
-  for (const st of layout.steps) {
-    const badges = [];
-    if (st.squeezed_pct) badges.push(el('span', { class: 'badge soft' }, t('badge.squeezed', { n: st.squeezed_pct })));
-    if (st.priority) badges.push(el('span', { class: 'badge first' }, t('badge.first')));
-    if (st.fragile) badges.push(el('span', { class: 'badge fragile' }, t('badge.fragile')));
-    ol.append(el('li', { 'data-step': st.step, onclick: () => scene && scene.showStep(st.step) },
+  const multi = multiBag(layout);
+  for (const g of bagGroups(layout)) {
+    if (multi) {
+      const looks = state.packedBags[g.i];
+      ol.append(el('li', { class: 'bag-head', title: t('m.bagFocus'), onclick: () => scene && scene.focusBag(g.i) },
+        el('span', { class: 'dot', style: `background:${looks ? looks.shell : BAG_COLORS[g.i]}`, 'aria-hidden': 'true' }),
+        el('b', {}, packedBagTitle(g.i)), el('small', {}, `${t(`kind.${g.bag.kind}`)} · ${bagMeta(g)}`)));
+    }
+    for (const st of g.steps) {
+      const badges = stepBadges(st);
+      ol.append(el('li', {
+        'data-step': st.step,
+        onclick: () => {
+          if (!scene) return;
+          // looking at another bag? turn to this one
+          if (multi && scene.focusedBag >= 0 && scene.focusedBag !== g.i) scene.focusBag(g.i);
+          scene.showStep(st.step);
+        },
+      },
       el('span', { class: 'n' }, String(st.step)), stepThumb(st),
       el('div', {}, el('div', { class: 'title' }, stepName(st)), el('div', { class: 'how' }, describe(st).how),
         badges.length ? el('div', { class: 'badges' }, badges) : null)));
+    }
   }
 }
 
 function markStep(n) {
-  for (const li of $('stepList').children) {
+  for (const li of $('stepList').querySelectorAll('li[data-step]')) {
     const s = Number(li.dataset.step);
     li.classList.toggle('done', s <= n);
     li.classList.toggle('current', s === n);
@@ -560,6 +809,15 @@ function markStep(n) {
   $('stepLabel').textContent = t('player.step', { n, total: state.layout ? state.layout.steps.length : 0 });
 }
 
+/** The steps as plain text (Copy), with a heading per bag when there are several. */
+function stepsText(layout) {
+  const multi = multiBag(layout);
+  return bagGroups(layout).map((g) => [
+    ...(multi ? [`${packedBagTitle(g.i)} (${bagMeta(g)})`] : []),
+    ...g.steps.map((st) => `${st.step}. ${describe(st).full}`),
+  ].join('\n')).join('\n\n');
+}
+
 // -- print checklist --------------------------------------------------------- //
 function printChecklist() {
   const layout = state.layout;
@@ -567,16 +825,19 @@ function printChecklist() {
   let hero = '';
   if (scene) {
     scene.showStep(layout.steps.length);
+    scene.frame(false);
     scene.renderNow();
     try { hero = scene.canvas.toDataURL('image/png'); } catch { hero = ''; }
   }
   const m = layout.metrics;
-  const s = layout.suitcase;
+  const bags = layoutBags(layout);
+  const multi = multiBag(layout);
+  const sub = bags.map((b, i) => `${packedBagTitle(i)} ${fmt(b.length)}×${fmt(b.width)}×${fmt(b.height)} ${t('unit.cm')}`).join(' + ');
   const view = $('printView');
   view.innerHTML = '';
   view.append(
     el('h1', {}, t('print.title')),
-    el('p', { class: 'sub' }, `${suitcaseTitle(s)} · ${fmt(s.length)}×${fmt(s.width)}×${fmt(s.height)} ${t('unit.cm')} · ${new Date().toLocaleDateString(lang)}`),
+    el('p', { class: 'sub' }, `${sub} · ${new Date().toLocaleDateString(lang)}`),
     hero ? el('img', { class: 'hero', src: hero, alt: t('print.alt') }) : null,
     el('div', { class: 'facts' },
       el('div', {}, el('b', {}, `${fmt(m.volume_efficiency_pct, 1)}%`), ` ${t('print.space')}`),
@@ -585,16 +846,19 @@ function printChecklist() {
       m.squeezed_items ? el('div', {}, el('b', {}, String(m.squeezed_items)), ` ${t('print.squeezed')}`) : null),
   );
   const thumbs = [];
-  const rows = layout.steps.map((st) => {
-    const img = stepThumb(st, false);
-    img.className = 't';
-    thumbs.push(img);
-    return el('tr', {},
-      el('td', {}, el('span', { class: 'box' })),
-      el('td', { class: 'n' }, String(st.step)),
-      el('td', {}, img),
-      el('td', {}, el('b', {}, stepName(st)), el('br'), describe(st).how));
-  });
+  const rows = bagGroups(layout).flatMap((g) => [
+    ...(multi ? [el('tr', { class: 'bag-row' }, el('td', { colspan: '4' }, el('b', {}, packedBagTitle(g.i)), ` · ${t(`kind.${g.bag.kind}`)} · ${bagMeta(g)}`))] : []),
+    ...g.steps.map((st) => {
+      const img = stepThumb(st, false);
+      img.className = 't';
+      thumbs.push(img);
+      return el('tr', {},
+        el('td', {}, el('span', { class: 'box' })),
+        el('td', { class: 'n' }, String(st.step)),
+        el('td', {}, img),
+        el('td', {}, el('b', {}, stepName(st)), el('br'), describe(st).how));
+    }),
+  ]);
   view.append(el('table', {}, el('tbody', {}, rows)));
   if (layout.unpacked.length) {
     view.append(el('p', { class: 'left' }, el('b', {}, `${t('print.didntFit')} `), layout.unpacked.map(stepName).join(', ')));
@@ -620,10 +884,10 @@ function syncPlayer() {
   $('player').classList.toggle('playing', !!(scene && scene.playing));
 }
 
-function matchPreset() {
-  const d = state.dims;
-  const match = state.catalog.suitcases.find((s) => s.length === d.length && s.width === d.width && s.height === d.height);
-  state.suitcaseId = match ? match.id : 'custom';
+/** Point a bag at the size preset its measurements match ('custom' if none). */
+function matchPreset(b) {
+  const match = presetMatch(b);
+  b.presetId = match ? match.id : 'custom';
 }
 
 function bindControls() {
@@ -631,18 +895,20 @@ function bindControls() {
   for (const [id, key] of [['dimL', 'length'], ['dimW', 'width'], ['dimH', 'height'], ['dimKg', 'max_weight']]) {
     $(id).addEventListener('change', (e) => {
       const v = parseFloat(e.target.value);
-      if (key === 'max_weight') state.dims.max_weight = v > 0 ? v : null;
-      else if (v > 0) state.dims[key] = v;
-      else e.target.value = state.dims[key];
-      matchPreset();
-      for (const [i, b] of [...$('suitcases').children].entries()) {
-        b.setAttribute('aria-checked', String(state.catalog.suitcases[i].id === state.suitcaseId));
+      const b = bag();
+      if (key === 'max_weight') b.dims.max_weight = v > 0 ? v : null;
+      else if (v > 0) b.dims[key] = v;
+      else e.target.value = b.dims[key];
+      matchPreset(b);
+      for (const [i, opt] of [...$('suitcases').children].entries()) {
+        opt.setAttribute('aria-checked', String(state.catalog.suitcases[i].id === b.presetId));
       }
+      renderBagTabs();
       applySuitcase();
     });
   }
   $('clearBtn').addEventListener('click', () => {
-    state.qty = {}; state.custom = []; state.priority = {}; state.profile = null;
+    state.qty = {}; state.custom = []; state.priority = {}; state.assign = {}; state.profile = null;
     save(); renderProfiles(); renderItems(); renderCategories(); updateSummary();
   });
   $('squeezeToggle').addEventListener('change', (e) => { state.allowSqueeze = e.target.checked; save(); updateSummary(); });
@@ -705,7 +971,7 @@ function bindControls() {
     e.preventDefault();
     try {
       applySnapshot(decodeShare($('openCode').value));
-      matchPreset();
+      for (const b of state.bags) matchPreset(b);
       state.profile = null;
       refreshAll();
       $('openForm').hidden = true;
@@ -718,8 +984,7 @@ function bindControls() {
 
   $('copyBtn').addEventListener('click', async () => {
     if (!state.layout) return;
-    const text = state.layout.steps.map((st) => `${st.step}. ${describe(st).full}`).join('\n');
-    try { await navigator.clipboard.writeText(text); toast(t('toast.stepsCopied')); } catch { toast(t('toast.copyFail')); }
+    try { await navigator.clipboard.writeText(stepsText(state.layout)); toast(t('toast.stepsCopied')); } catch { toast(t('toast.copyFail')); }
   });
   $('printBtn').addEventListener('click', printChecklist);
 
@@ -757,7 +1022,10 @@ function bindControls() {
       if (i < 0) { tip.hidden = true; return; }
       const st = scene.items[i].step;
       const rect = canvas.getBoundingClientRect();
-      const extra = [st.squeezed_pct ? t('badge.squeezed', { n: st.squeezed_pct }) : '', st.priority ? t('badge.first') : ''].filter(Boolean).join(' · ');
+      const extra = [
+        multiBag(state.layout) ? packedBagTitle(st.bag) : '',
+        st.squeezed_pct ? t('badge.squeezed', { n: st.squeezed_pct }) : '', st.priority ? t('badge.first') : '',
+      ].filter(Boolean).join(' · ');
       tip.textContent = `${st.step}. ${stepName(st)} · ${st.size.map((v) => fmt(v)).join('×')} ${t('unit.cm')}${extra ? ` · ${extra}` : ''}`;
       tip.style.left = `${e.clientX - rect.left}px`;
       tip.style.top = `${e.clientY - rect.top}px`;
@@ -799,7 +1067,7 @@ onLangChange(() => {
   renderLanguageOptions();
   if (!state.catalog) return;
   renderChrome();
-  renderSuitcases(); renderSwatches(); renderProfiles(); renderCategories(); renderItems();
+  renderBagEditor(); renderProfiles(); renderCategories(); renderItems();
   renderCustomModelOptions(); renderTrips(); updateSummary();
   if (state.layout) renderResultText(state.layout);
   toast(t('toast.lang'));

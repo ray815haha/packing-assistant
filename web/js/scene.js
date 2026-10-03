@@ -1,4 +1,5 @@
-// The 3D packing view: suitcase, product meshes and the step-by-step animation.
+// The 3D packing view: one or more open bags side by side, product meshes and
+// the step-by-step animation.
 
 import { Renderer, OrbitCamera, Mesh } from './engine/renderer.js';
 import { mat4, clamp, easeInOut } from './engine/math.js';
@@ -8,14 +9,18 @@ import { buildSuitcase } from './suitcase.js';
 
 const DEG = Math.PI / 180;
 const easeOutCubic = (t) => 1 - Math.pow(1 - t, 3);
+const BAG_GAP = 18; // cm between bags (room for the wheels of the next one)
 
 export class PackingScene {
   constructor(canvas) {
     this.canvas = canvas;
     this.renderer = new Renderer(canvas);
     this.camera = new OrbitCamera();
-    this.suitcase = null;
-    this.items = [];          // [{ step, mesh, target, euler, size }]
+    this.bags = [];           // [{ L, W, H, ox, walls, solid, shadow }] laid out along x
+    this._bagsKey = '';
+    this.follow = true;       // while playing, move the camera to the bag being packed
+    this._focusBag = -1;
+    this.items = [];          // [{ step, mesh, target, euler, size, bag }]
     this.t = 0;               // timeline position in steps
     this.playing = false;
     this.speed = 0.8;         // steps per second
@@ -32,38 +37,65 @@ export class PackingScene {
     requestAnimationFrame((t) => this._loop(t));
   }
 
-  // -- suitcase -------------------------------------------------------------
-  setSuitcase(L, W, H, color) {
-    const key = `${L}|${W}|${H}|${color}`;
-    if (this.suitcase && this.suitcase.key === key) return;
-    if (this.suitcase) for (const m of this._suitcaseMeshes()) this.renderer.disposeMesh(m);
-    this.suitcase = { key, L, W, H, ...buildSuitcase(this.renderer, L, W, H, color) };
+  // -- bags -----------------------------------------------------------------
+  /** One bag: setSuitcase(L, W, H, colour). Several: setBags([{ L, W, H, color, style }]). */
+  setSuitcase(L, W, H, color, style = 'hard') {
+    this.setBags([{ L, W, H, color, style }]);
+  }
+
+  setBags(list) {
+    const key = list.map((b) => `${b.L}|${b.W}|${b.H}|${b.color}|${b.style || 'hard'}`).join(';');
+    if (key === this._bagsKey) return;
+    this._bagsKey = key;
+    for (const m of this._bagMeshes()) this.renderer.disposeMesh(m);
+    let x = 0;
+    this.bags = list.map((b) => {
+      const built = buildSuitcase(this.renderer, b.L, b.W, b.H, b.color, b.style);
+      const ox = x;
+      x += b.L + BAG_GAP;
+      for (const m of [...built.solid, ...built.walls, built.shadow]) m.matrix = mat4.multiply(mat4.translation(ox, 0, 0), m.matrix);
+      return { L: b.L, W: b.W, H: b.H, ox, ...built };
+    });
     this._applyXray();
     this.frame();
     this.dirty = true;
   }
 
-  _suitcaseMeshes() {
-    const s = this.suitcase;
-    return s ? [...s.solid, ...s.walls, s.shadow] : [];
+  /** The first bag (for code that only knows about one). */
+  get suitcase() { return this.bags[0] || null; }
+
+  _bagMeshes() {
+    return this.bags.flatMap((b) => [...b.solid, ...b.walls, b.shadow]);
   }
 
-  frame(animate = true) {
-    if (!this.suitcase) return;
-    const { L, W, H } = this.suitcase;
-    // frame the open case plus the lid lying behind it, whatever the viewport shape
+  /** Frame every bag, or just bag `only`, plus the lids lying behind them,
+   * whatever the viewport shape. */
+  frame(animate = true, only = -1) {
+    if (!this.bags.length) return;
+    const shown = only >= 0 && this.bags[only] ? [this.bags[only]] : this.bags;
+    const x0 = shown[0].ox, x1 = shown[shown.length - 1].ox + shown[shown.length - 1].L;
+    const L = x1 - x0, W = Math.max(...shown.map((b) => b.W));
     const aspect = Math.max(0.5, this.canvas.clientWidth / Math.max(1, this.canvas.clientHeight));
     const span = Math.max(L * 1.15, W * 1.9) / Math.min(1, aspect / 1.25);
-    const goal = { target: [L / 2, W * 0.78, 0], distance: span * 1.75, azimuth: -60, elevation: 50 };
+    const goal = { target: [x0 + L / 2, W * 0.78, 0], distance: span * 1.75, azimuth: -60, elevation: 50 };
     if (animate) this.camera.animateTo(goal);
     else Object.assign(this.camera, { ...goal, target: [...goal.target] });
+    this._focusBag = shown.length === 1 && this.bags.length > 1 ? this.bags.indexOf(shown[0]) : -1;
     this.dirty = true;
   }
 
+  /** Move the camera to one bag (-1: all of them). */
+  focusBag(i) { this.frame(true, i); }
+
+  /** The bag the camera is on, or -1 when it shows them all. */
+  get focusedBag() { return this._focusBag; }
+
   topView() {
-    if (!this.suitcase) return;
-    const { L, W } = this.suitcase;
-    this.camera.animateTo({ target: [L / 2, W / 2, 0], distance: Math.max(L, W) * 2.1, azimuth: -90, elevation: 89 });
+    if (!this.bags.length) return;
+    const shown = this._focusBag >= 0 ? [this.bags[this._focusBag]] : this.bags;
+    const x0 = shown[0].ox, x1 = shown[shown.length - 1].ox + shown[shown.length - 1].L;
+    const W = Math.max(...shown.map((b) => b.W));
+    this.camera.animateTo({ target: [(x0 + x1) / 2, W / 2, 0], distance: Math.max(x1 - x0, W) * 2.1, azimuth: -90, elevation: 89 });
   }
 
   setXray(on) {
@@ -73,22 +105,28 @@ export class PackingScene {
   }
 
   _applyXray() {
-    if (!this.suitcase) return;
-    for (const w of this.suitcase.walls) w.alpha = this.xray ? 0.16 : 1;
+    for (const b of this.bags) for (const w of b.walls) w.alpha = this.xray ? 0.16 : 1;
   }
 
   // -- items ----------------------------------------------------------------
-  async setLayout(layout) {
+  /** `looks` = [{ color, style }] per bag (default: suitcaseColor, hard shell). */
+  async setLayout(layout, looks = []) {
     for (const it of this.items) this.renderer.disposeMesh(it.mesh);
     this.items = [];
-    const s = layout.suitcase;
-    this.setSuitcase(s.length, s.width, s.height, this.suitcaseColor || '#2f4858');
+    const bags = layout.bags || [layout.suitcase];
+    this.setBags(bags.map((b, i) => ({
+      L: b.length, W: b.width, H: b.height,
+      color: (looks[i] && looks[i].color) || this.suitcaseColor || '#2f4858',
+      style: (looks[i] && looks[i].style) || 'hard',
+    })));
     const built = await Promise.all(layout.steps.map((st) => this._buildItemMesh(st)));
     this.items = layout.steps.map((st, i) => {
-      const [x, y, z] = st.position;
+      const bag = st.bag || 0;
+      const [x, y, z] = [st.position[0] + this.bags[bag].ox, st.position[1], st.position[2]];
       const [sx, sy, sz] = st.size;
       return {
         step: st,
+        bag,
         mesh: built[i],
         target: [x + sx / 2, y + sy / 2, z + sz / 2],
         euler: st.rotation_euler_deg.map((a) => a * DEG),
@@ -134,6 +172,12 @@ export class PackingScene {
     this.dirty = true;
   }
   pause() { this.playing = false; }
+
+  /** Index of the bag that step n (1-based) goes into. */
+  bagOfStep(n) {
+    const it = this.items[Math.max(1, Math.min(this.items.length, n)) - 1];
+    return it ? it.bag : 0;
+  }
   toggle() { this.playing ? this.pause() : this.play(); }
 
   seek(t) {
@@ -153,7 +197,6 @@ export class PackingScene {
   prev() { this.showStep(Math.max(0, Math.ceil(this.t - 1e-6) - 1)); }
 
   _updateItems() {
-    const hoverZ = (this.suitcase ? this.suitcase.H : 20) + 14;
     const active = Math.floor(this.t - 1e-9);
     for (let i = 0; i < this.items.length; i++) {
       const it = this.items[i];
@@ -162,7 +205,7 @@ export class PackingScene {
       if (p <= 0) { m.visible = false; continue; }
       m.visible = true;
       const [tx, ty, tz] = it.target;
-      const hz = hoverZ + it.size[2] / 2;
+      const hz = (this.bags[it.bag] ? this.bags[it.bag].H : 20) + 14 + it.size[2] / 2;
       let rot = 1, z = tz, alpha = 1, scale = 1;
       if (p < 1) {
         const a = clamp(p / 0.22, 0, 1);
@@ -193,7 +236,8 @@ export class PackingScene {
   /** Draw immediately (e.g. before taking a snapshot of the canvas). */
   renderNow() {
     this._updateItems();
-    const meshes = [...this._suitcaseMeshes(), ...this.items.map((i) => i.mesh)];
+    this.camera.update(10); // finish any camera move first
+    const meshes = [...this._bagMeshes(), ...this.items.map((i) => i.mesh)];
     this.renderer.render(meshes, this.camera);
     this.dirty = false;
   }
@@ -224,14 +268,20 @@ export class PackingScene {
     this._last = now;
     if (this.playing) {
       this.t += dt * this.speed;
-      if (this.t >= this.stepCount) { this.t = this.stepCount; this.playing = false; }
+      const done = this.t >= this.stepCount;
+      if (done) { this.t = this.stepCount; this.playing = false; }
       this._updateItems();
+      if (this.follow && this.bags.length > 1) {
+        // look at the bag being packed; show them all again at the end
+        const want = done ? -1 : this.bagOfStep(Math.floor(this.t) + 1);
+        if (want !== this._focusBag) this.frame(true, want);
+      }
       this.dirty = true;
     }
     if (this.camera.update(dt)) this.dirty = true;
     if (this.dirty) {
       this.dirty = false;
-      const meshes = [...this._suitcaseMeshes(), ...this.items.map((i) => i.mesh)];
+      const meshes = [...this._bagMeshes(), ...this.items.map((i) => i.mesh)];
       this.renderer.render(meshes, this.camera);
     }
     requestAnimationFrame((t) => this._loop(t));

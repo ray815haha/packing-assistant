@@ -104,37 +104,44 @@ ITEMS = [
     ("yoga_mat",      "Travel yoga mat (rolled)",    G, "towel_roll", 61, 11, 11,  1.00, "#8854d0", {}),
 ]
 
+# kind: where the bag travels ("personal" = under the seat in front of you,
+# "cabin" = overhead locker, "checked" = in the hold).
+# style: how the 3D view draws it ("hard" shell with wheels, "soft" bag).
 SUITCASES = [
-    {"id": "underseat", "name": "Under-seat bag", "length": 40, "width": 30, "height": 20, "max_weight": 7},
-    {"id": "carry_on", "name": "Carry-on", "length": 55, "width": 35, "height": 23, "max_weight": 10},
-    {"id": "medium", "name": "Medium check-in", "length": 65, "width": 44, "height": 27, "max_weight": 23},
-    {"id": "large", "name": "Large check-in", "length": 75, "width": 50, "height": 30, "max_weight": 23},
+    {"id": "underseat", "name": "Under-seat bag", "length": 40, "width": 30, "height": 20, "max_weight": 7,
+     "kind": "personal", "style": "soft"},
+    {"id": "carry_on", "name": "Carry-on", "length": 55, "width": 35, "height": 23, "max_weight": 10,
+     "kind": "cabin", "style": "hard"},
+    {"id": "medium", "name": "Medium check-in", "length": 65, "width": 44, "height": 27, "max_weight": 23,
+     "kind": "checked", "style": "hard"},
+    {"id": "large", "name": "Large check-in", "length": 75, "width": 50, "height": 30, "max_weight": 23,
+     "kind": "checked", "style": "hard"},
 ]
 
 PROFILES = [
-    {"id": "weekend", "name": "Weekend getaway", "suitcase": "carry_on", "items": {
+    {"id": "weekend", "name": "Weekend getaway", "bags": ["carry_on"], "items": {
         "tshirt": 2, "jeans": 1, "hoodie": 1, "underwear": 3, "socks": 2,
         "pajamas": 1, "sneakers": 1, "toiletry_bag": 1, "power_bank": 1, "charger": 1,
         "sunglasses": 1, "passport": 1}},
-    {"id": "business", "name": "Business trip (3 days)", "suitcase": "carry_on", "items": {
+    {"id": "business", "name": "Business trip (3 days)", "bags": ["carry_on", "underseat"], "items": {
         "dress_shirt": 2, "dress_pants": 1, "blazer": 1, "underwear": 3, "socks": 3, "dress_shoes": 1,
         "laptop_13": 1, "charger": 1, "toiletry_bag": 1, "documents": 1, "belt": 1}},
-    {"id": "beach", "name": "Beach week", "suitcase": "medium", "items": {
+    {"id": "beach", "name": "Beach week", "bags": ["medium", "underseat"], "items": {
         "tshirt": 3, "tank_top": 3, "polo": 1, "shorts": 3, "swim_shorts": 1, "swimsuit": 2, "dress": 2,
         "underwear": 7, "socks": 3, "sandals": 1, "flip_flops": 1, "sun_hat": 1, "sunscreen": 2,
         "toiletry_bag": 1, "beach_towel": 1, "sunglasses": 1, "book": 2, "water_bottle": 1,
         "earbuds": 1, "power_bank": 1, "snacks": 1}},
-    {"id": "city", "name": "City break (5 days)", "suitcase": "medium", "items": {
+    {"id": "city", "name": "City break (5 days)", "bags": ["medium", "underseat"], "items": {
         "tshirt": 2, "tshirt_white": 1, "sweater": 1, "light_jacket": 1, "jeans": 1, "chinos": 1,
         "underwear": 5, "socks": 5, "sneakers": 1, "toiletry_bag": 1, "camera": 1, "power_bank": 1,
         "charger": 1, "umbrella": 1, "passport": 1, "baseball_cap": 1}},
-    {"id": "two_weeks", "name": "Two-week holiday", "suitcase": "large", "items": {
+    {"id": "two_weeks", "name": "Two-week holiday", "bags": ["large", "underseat"], "items": {
         "tshirt": 3, "tshirt_white": 2, "polo": 1, "dress_shirt": 1, "sweater": 1, "hoodie": 1,
         "light_jacket": 1, "jeans": 1, "chinos": 1, "shorts": 2, "swim_shorts": 1, "underwear": 8,
         "socks": 6, "pajamas": 1, "sneakers": 1, "sandals": 1, "toiletry_bag": 1, "makeup_bag": 1,
         "hair_dryer": 1, "laptop_13": 1, "charger": 1, "cable_pouch": 1, "camera": 1, "book": 2,
         "sunglasses": 1, "first_aid": 1, "documents": 1, "laundry_bag": 1}},
-    {"id": "cubes", "name": "Packing-cube system", "suitcase": "carry_on", "items": {
+    {"id": "cubes", "name": "Packing-cube system", "bags": ["carry_on"], "items": {
         "cube_m": 2, "cube_s": 1, "sneakers": 1, "toiletry_bag": 1, "laptop_13": 1,
         "charger": 1, "water_bottle": 1, "passport": 1}},
 ]
@@ -159,6 +166,14 @@ SQUEEZE = {
 SQUEEZE_BY_ID = {"cube_s": 0.2, "cube_m": 0.2, "cube_l": 0.2, "compression_cube": 0.35, "eye_mask": 0.3}
 # Things you usually want to grab without unpacking.
 NEED_FIRST = {"passport", "documents", "wallet", "earbuds", "eye_mask", "medicine", "power_bank"}
+# When packing several bags: spare lithium batteries (power banks) are only
+# allowed in the cabin (IATA dangerous-goods rules), and valuables, fragile
+# electronics, documents and medicine are best kept with you.
+CABIN_REQUIRED = {"power_bank"}
+CABIN_PREFERRED = {
+    "laptop_13", "laptop_15", "tablet", "ereader", "camera", "camera_lens", "game_console", "earbuds",
+    "passport", "documents", "medicine", "jewelry", "watch_box", "wallet",
+}
 
 items = []
 for (iid, name, cat, model, l, w, h, kg, color, flags) in ITEMS:
@@ -169,6 +184,10 @@ for (iid, name, cat, model, l, w, h, kg, color, flags) in ITEMS:
         e["squeeze"] = sq
     if iid in NEED_FIRST:
         e["priority"] = True
+    if iid in CABIN_REQUIRED:
+        e["cabin"] = "required"
+    elif iid in CABIN_PREFERRED:
+        e["cabin"] = "preferred"
     e.update({k: v for k, v in flags.items()})
     items.append(e)
 ids = [i["id"] for i in items]
@@ -176,6 +195,8 @@ assert len(ids) == len(set(ids)), "duplicate ids"
 for p in PROFILES:
     for k in p["items"]:
         assert k in ids, (p["id"], k)
+    for b in p["bags"]:
+        assert b in {s["id"] for s in SUITCASES}, (p["id"], b)
 
 out = {"categories": CATEGORIES, "suitcases": SUITCASES, "profiles": PROFILES, "items": items}
 path = Path(__file__).resolve().parent.parent / "data" / "catalog.json"

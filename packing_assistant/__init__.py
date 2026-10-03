@@ -2,7 +2,9 @@
 
 from .data_io import load_trip
 from .models import Item, Placement, Suitcase
-from .optimizer import PackerConfig, PackingOptimizer, PackingResult, pack
+from .optimizer import (
+    MultiPackingResult, PackerConfig, PackingOptimizer, PackingResult, pack, pack_bags,
+)
 
 __all__ = [
     "Item",
@@ -11,7 +13,9 @@ __all__ = [
     "PackerConfig",
     "PackingOptimizer",
     "PackingResult",
+    "MultiPackingResult",
     "pack",
+    "pack_bags",
     "load_trip",
 ]
-__version__ = "0.1.0"
+__version__ = "0.4.0"

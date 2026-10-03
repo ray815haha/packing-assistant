@@ -8,10 +8,11 @@ Run it one of these ways (Blender 3.6 or newer):
      It looks for ../output/layout.json next to this script; if Blender can't
      tell where the script lives, set LAYOUT_PATH below.
 
-What you get: a suitcase frame, one rounded box per item in its category
-colour, and an animation where each item appears above the case, turns into
-its packed orientation and drops into place, in packing order. A timeline
-marker labels every step.
+What you get: a suitcase frame (one per bag, side by side, for a layout of
+several bags), one rounded box per item in its category colour, and an
+animation where each item appears above the case, turns into its packed
+orientation and drops into place, in packing order. A timeline marker labels
+every step.
 """
 
 import json
@@ -26,6 +27,7 @@ LAYOUT_PATH = ""  # optional: absolute path to layout.json
 CM = 0.01  # the optimiser works in centimetres, Blender in metres
 FRAMES_PER_STEP = 24
 HOVER_HEIGHT_CM = 25  # how high above the case each item starts
+BAG_GAP_CM = 18  # space between bags when the layout has several (as in the web app)
 COLLECTION_NAME = "SmartPacking"
 PREFIX = "SPA_"
 
@@ -130,28 +132,40 @@ def add_object(coll, name, data) -> bpy.types.Object:
 def build(layout: dict) -> None:
     scene = bpy.context.scene
     coll = reset_collection()
-    s = layout["suitcase"]
-    L, W, H = s["length"] * CM, s["width"] * CM, s["height"] * CM
+    # One bag (layout["suitcase"]) or several (layout["bags"]), laid out along x
+    bags = layout.get("bags") or [layout["suitcase"]]
+    offsets, x0 = [], 0.0
+    for s in bags:
+        offsets.append(x0)
+        x0 += (s["length"] + BAG_GAP_CM) * CM
+    L = x0 - BAG_GAP_CM * CM  # all bags together
+    W = max(s["width"] for s in bags) * CM
+    H = max(s["height"] for s in bags) * CM
 
-    # Suitcase: floor panel + wireframe walls
-    floor = add_object(coll, "Suitcase_Floor", box_mesh("Suitcase_Floor", L, W, 0.005))
-    floor.location = (L / 2, W / 2, -0.0025)
-    floor.data.materials.append(material("SuitcaseFloor", (0.12, 0.12, 0.14), 0.8))
+    # Each bag: floor panel + wireframe walls
+    for i, (s, ox) in enumerate(zip(bags, offsets)):
+        bl, bw, bh = s["length"] * CM, s["width"] * CM, s["height"] * CM
+        tag = "" if len(bags) == 1 else f"_{i + 1}"
+        floor = add_object(coll, f"Suitcase_Floor{tag}", box_mesh(f"Suitcase_Floor{tag}", bl, bw, 0.005))
+        floor.location = (ox + bl / 2, bw / 2, -0.0025)
+        floor.data.materials.append(material("SuitcaseFloor", (0.12, 0.12, 0.14), 0.8))
 
-    frame = add_object(coll, "Suitcase_Frame", box_mesh("Suitcase_Frame", L, W, H))
-    frame.location = (L / 2, W / 2, H / 2)
-    wire = frame.modifiers.new("Wireframe", "WIREFRAME")
-    wire.thickness = 0.004
-    frame.data.materials.append(material("SuitcaseFrame", (0.55, 0.55, 0.6), 0.4))
+        frame = add_object(coll, f"Suitcase_Frame{tag}", box_mesh(f"Suitcase_Frame{tag}", bl, bw, bh))
+        frame.location = (ox + bl / 2, bw / 2, bh / 2)
+        wire = frame.modifiers.new("Wireframe", "WIREFRAME")
+        wire.thickness = 0.004
+        frame.data.materials.append(material("SuitcaseFrame", (0.55, 0.55, 0.6), 0.4))
 
     # Items
     steps = layout["steps"]
     for st in steps:
+        bag = st.get("bag", 0)
         l, w, h = (v * CM for v in st["original_size"])
         pl, pw, ph = (v * CM for v in st["size"])
         x, y, z = (v * CM for v in st["position"])
+        x += offsets[bag]
         target = (x + pl / 2, y + pw / 2, z + ph / 2)
-        start = (target[0], target[1], H + HOVER_HEIGHT_CM * CM + ph / 2)
+        start = (target[0], target[1], bags[bag]["height"] * CM + HOVER_HEIGHT_CM * CM + ph / 2)
         rot = tuple(math.radians(a) for a in st["rotation_euler_deg"])
 
         name = f"{st['step']:02d}_{st['name']}"

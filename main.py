@@ -6,6 +6,7 @@ Examples
     python main.py --input data/my_trip.json
     python main.py --restarts 200 --seed 7          # search harder / differently
     python main.py --min-support 0.6 --no-preview
+    python main.py --input data/two_bag_trip.json   # split across several bags
 
 Outputs go to ./output/: layout.json (for Blender), placement_log.txt and,
 if matplotlib is installed, preview.png.
@@ -17,9 +18,11 @@ import argparse
 import sys
 from pathlib import Path
 
-from packing_assistant import PackerConfig, load_trip, pack
+from packing_assistant import PackerConfig, load_trip, pack, pack_bags
 from packing_assistant.visualizer import (
     export_layout_json,
+    format_bags_metrics,
+    format_bags_text_log,
     format_metrics,
     format_text_log,
     render_preview_png,
@@ -46,7 +49,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     try:
-        suitcase, items = load_trip(args.input)
+        bags, items = load_trip(args.input)  # one Suitcase, or a list of bags
     except (OSError, KeyError, ValueError) as e:
         print(f"Could not read trip file {args.input}: {e}", file=sys.stderr)
         return 2
@@ -57,23 +60,35 @@ def main(argv: list[str] | None = None) -> int:
         seed=None if args.seed == -1 else args.seed,
         time_limit_s=args.time_limit,
     )
-    result = pack(suitcase, items, config)
+    several = isinstance(bags, list)
+    if several:
+        result = pack_bags(bags, items, config)
+        summary, log = format_bags_metrics(result), format_bags_text_log(result)
+    else:
+        result = pack(bags, items, config)
+        summary, log = format_metrics(result), format_text_log(result)
 
-    print(format_metrics(result))
+    print(summary)
     print()
-    log = format_text_log(result)
     print(log)
 
     out = args.output
     out.mkdir(parents=True, exist_ok=True)
     layout_path = export_layout_json(result, out / "layout.json")
-    (out / "placement_log.txt").write_text(format_metrics(result) + "\n\n" + log + "\n", encoding="utf-8")
+    (out / "placement_log.txt").write_text(summary + "\n\n" + log + "\n", encoding="utf-8")
     print()
     print(f"Saved {layout_path}")
     print(f"Saved {out / 'placement_log.txt'}")
     if not args.no_preview:
-        png = render_preview_png(result, out / "preview.png")
-        print(f"Saved {png}" if png else "Preview skipped (pip install matplotlib to enable it)")
+        if several:  # one picture per bag
+            for i, r in enumerate(result.results, start=1):
+                png = render_preview_png(r, out / f"preview_bag{i}.png")
+                print(f"Saved {png}" if png else "Preview skipped (pip install matplotlib to enable it)")
+                if not png:
+                    break
+        else:
+            png = render_preview_png(result, out / "preview.png")
+            print(f"Saved {png}" if png else "Preview skipped (pip install matplotlib to enable it)")
     return 0 if not result.unpacked else 1
 
 

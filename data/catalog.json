@@ -43,7 +43,9 @@
    "length": 40,
    "width": 30,
    "height": 20,
-   "max_weight": 7
+   "max_weight": 7,
+   "kind": "personal",
+   "style": "soft"
   },
   {
    "id": "carry_on",
@@ -51,7 +53,9 @@
    "length": 55,
    "width": 35,
    "height": 23,
-   "max_weight": 10
+   "max_weight": 10,
+   "kind": "cabin",
+   "style": "hard"
   },
   {
    "id": "medium",
@@ -59,7 +63,9 @@
    "length": 65,
    "width": 44,
    "height": 27,
-   "max_weight": 23
+   "max_weight": 23,
+   "kind": "checked",
+   "style": "hard"
   },
   {
    "id": "large",
@@ -67,14 +73,18 @@
    "length": 75,
    "width": 50,
    "height": 30,
-   "max_weight": 23
+   "max_weight": 23,
+   "kind": "checked",
+   "style": "hard"
   }
  ],
  "profiles": [
   {
    "id": "weekend",
    "name": "Weekend getaway",
-   "suitcase": "carry_on",
+   "bags": [
+    "carry_on"
+   ],
    "items": {
     "tshirt": 2,
     "jeans": 1,
@@ -93,7 +103,10 @@
   {
    "id": "business",
    "name": "Business trip (3 days)",
-   "suitcase": "carry_on",
+   "bags": [
+    "carry_on",
+    "underseat"
+   ],
    "items": {
     "dress_shirt": 2,
     "dress_pants": 1,
@@ -111,7 +124,10 @@
   {
    "id": "beach",
    "name": "Beach week",
-   "suitcase": "medium",
+   "bags": [
+    "medium",
+    "underseat"
+   ],
    "items": {
     "tshirt": 3,
     "tank_top": 3,
@@ -139,7 +155,10 @@
   {
    "id": "city",
    "name": "City break (5 days)",
-   "suitcase": "medium",
+   "bags": [
+    "medium",
+    "underseat"
+   ],
    "items": {
     "tshirt": 2,
     "tshirt_white": 1,
@@ -162,7 +181,10 @@
   {
    "id": "two_weeks",
    "name": "Two-week holiday",
-   "suitcase": "large",
+   "bags": [
+    "large",
+    "underseat"
+   ],
    "items": {
     "tshirt": 3,
     "tshirt_white": 2,
@@ -197,7 +219,9 @@
   {
    "id": "cubes",
    "name": "Packing-cube system",
-   "suitcase": "carry_on",
+   "bags": [
+    "carry_on"
+   ],
    "items": {
     "cube_m": 2,
     "cube_s": 1,
@@ -784,7 +808,8 @@
    "height": 4,
    "weight": 0.08,
    "color": "#ffffff",
-   "priority": true
+   "priority": true,
+   "cabin": "preferred"
   },
   {
    "id": "laptop_13",
@@ -796,6 +821,7 @@
    "height": 1.6,
    "weight": 1.25,
    "color": "#b8bcc2",
+   "cabin": "preferred",
    "fragile": true
   },
   {
@@ -808,6 +834,7 @@
    "height": 1.8,
    "weight": 1.85,
    "color": "#4a4d52",
+   "cabin": "preferred",
    "fragile": true
   },
   {
@@ -820,6 +847,7 @@
    "height": 0.8,
    "weight": 0.5,
    "color": "#2b2b2b",
+   "cabin": "preferred",
    "fragile": true
   },
   {
@@ -831,7 +859,8 @@
    "width": 12.5,
    "height": 0.9,
    "weight": 0.2,
-   "color": "#3a3a3a"
+   "color": "#3a3a3a",
+   "cabin": "preferred"
   },
   {
    "id": "headphones",
@@ -854,7 +883,8 @@
    "height": 3,
    "weight": 0.05,
    "color": "#fafafa",
-   "priority": true
+   "priority": true,
+   "cabin": "preferred"
   },
   {
    "id": "power_bank",
@@ -866,7 +896,8 @@
    "height": 2.2,
    "weight": 0.35,
    "color": "#222831",
-   "priority": true
+   "priority": true,
+   "cabin": "required"
   },
   {
    "id": "charger",
@@ -900,6 +931,7 @@
    "height": 9,
    "weight": 0.65,
    "color": "#1c1c1c",
+   "cabin": "preferred",
    "fragile": true
   },
   {
@@ -912,6 +944,7 @@
    "height": 9,
    "weight": 0.4,
    "color": "#1c1c1c",
+   "cabin": "preferred",
    "fragile": true,
    "upright": true
   },
@@ -936,6 +969,7 @@
    "height": 2.5,
    "weight": 0.4,
    "color": "#2f2f2f",
+   "cabin": "preferred",
    "fragile": true
   },
   {
@@ -972,6 +1006,7 @@
    "height": 7,
    "weight": 0.25,
    "color": "#2d3436",
+   "cabin": "preferred",
    "fragile": true
   },
   {
@@ -984,7 +1019,8 @@
    "height": 5,
    "weight": 0.1,
    "color": "#8e44ad",
-   "squeeze": 0.3
+   "squeeze": 0.3,
+   "cabin": "preferred"
   },
   {
    "id": "wallet",
@@ -996,7 +1032,8 @@
    "height": 2,
    "weight": 0.15,
    "color": "#6d4c41",
-   "priority": true
+   "priority": true,
+   "cabin": "preferred"
   },
   {
    "id": "belt",
@@ -1078,7 +1115,8 @@
    "height": 0.8,
    "weight": 0.05,
    "color": "#7b1e2b",
-   "priority": true
+   "priority": true,
+   "cabin": "preferred"
   },
   {
    "id": "documents",
@@ -1090,7 +1128,8 @@
    "height": 1.5,
    "weight": 0.3,
    "color": "#3867d6",
-   "priority": true
+   "priority": true,
+   "cabin": "preferred"
   },
   {
    "id": "book",

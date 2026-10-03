@@ -19,7 +19,8 @@ const STRINGS = {
     'mode.serverTitle': 'Packing runs in Python; saved trips are stored in data/trips.json',
     'mode.browserTitle': 'Packing runs in this browser; saved trips are stored in this browser only',
 
-    's1.title': 'Your suitcase',
+    's1.title': 'Your bags',
+    's1.bags': 'Your bags',
     's1.sizes': 'Suitcase size',
     's1.length': 'Length',
     's1.width': 'Width',
@@ -27,6 +28,18 @@ const STRINGS = {
     's1.max': 'Max',
     's1.hint': 'Inside measurements. Edit them to match your own bag.',
     's1.colour': 'Suitcase colour',
+    'bag.n': 'Bag {n}',
+    'bag.add': '+ Add a bag',
+    'bag.addTitle': 'Split your things across several bags, e.g. a suitcase and a backpack',
+    'bag.remove': 'Remove {name}',
+    'bag.kind': 'Where this bag travels',
+    'kind.checked': 'Checked',
+    'kind.cabin': 'Carry-on',
+    'kind.personal': 'Under seat',
+    'kind.checkedTitle': 'Checked in: travels in the hold',
+    'kind.cabinTitle': 'Carry-on: goes in the overhead locker',
+    'kind.personalTitle': 'Personal item: goes under the seat in front of you',
+    'kind.hint': 'Power banks only go in bags you take on board. Valuables and ★ items go in the bag under your seat. Pick a bag for any item to override this.',
     'unit.cm': 'cm',
     'unit.kg': 'kg',
 
@@ -58,6 +71,10 @@ const STRINGS = {
     'item.add': 'Add one {name}',
     'item.pinTitle': 'Need it first: packed last, on top, easy to grab',
     'item.pinAria': 'Need {name} first',
+    'item.bag': 'Which bag {name} goes in',
+    'item.bagAuto': 'Any bag',
+    'tag.cabin': 'cabin only',
+    'tag.cabinTitle': 'Lithium battery: not allowed in checked bags, so it travels in a bag you take on board',
     'tag.fragile': 'fragile',
     'tag.upright': 'upright',
     'tag.soft': 'soft',
@@ -79,13 +96,14 @@ const STRINGS = {
     'sum.clear': 'Clear',
     'sum.squeeze': 'Squeeze soft clothes if space is tight',
     'sum.pack': 'Pack my suitcase',
+    'sum.packBags': 'Pack my bags',
     'fill.empty': 'Add some items to get started.',
     'fill.overKg': 'Over the {max} kg limit, so some items will be left out.',
-    'fill.over': "Items take {pct}% of the case's volume. Not everything will fit.",
-    'fill.overSq': "Items take {pct}% of the case's volume. Not everything will fit, even squeezed.",
-    'fill.tight': '{pct}% of the volume: tight. Odd shapes may not all fit.',
-    'fill.tightSq': '{pct}% of the volume: tight. Soft items may get squeezed.',
-    'fill.ok': "Items take about {pct}% of the case's volume.",
+    'fill.over': 'Items take {pct}% of the space. Not everything will fit.',
+    'fill.overSq': 'Items take {pct}% of the space. Not everything will fit, even squeezed.',
+    'fill.tight': '{pct}% of the space: tight. Odd shapes may not all fit.',
+    'fill.tightSq': '{pct}% of the space: tight. Soft items may get squeezed.',
+    'fill.ok': 'Items take about {pct}% of the space.',
 
     'stage.canvas': '3D view of the packed suitcase',
     'm.space': 'Space used',
@@ -96,6 +114,8 @@ const STRINGS = {
     'm.squeezedTitle': 'Soft items pressed flatter to make everything fit',
     'm.onTop': '{a}/{b} need-it-first items on top',
     'm.tried': '{n} layouts tried in {s} s',
+    'm.bagItems': '{n} items',
+    'm.bagFocus': 'Show this bag',
     'view.xray': 'See-through walls',
     'view.top': 'Top view',
     'view.reset': 'Reset view',
@@ -115,19 +135,26 @@ const STRINGS = {
     'steps.title': 'Packing steps',
     'steps.copy': 'Copy',
     'steps.print': 'Print checklist',
+    'steps.bagMeta': '{n} items · {kg} kg',
     'badge.squeezed': 'squeezed {n}%',
     'badge.first': 'need it first',
     'badge.fragile': 'fragile',
+    'badge.cabin': 'cabin only',
+    'badge.cabinWarn': 'carry this on board',
 
     'banner.didntFit1': "1 item didn't fit.",
     'banner.didntFit': "{n} items didn't fit.",
-    'banner.hint': 'Try a bigger case or fewer items.',
-    'banner.hintNoSq': 'Try turning on squeezing, a bigger case or fewer items.',
+    'banner.hint': 'Try a bigger case, another bag or fewer items.',
+    'banner.hintNoSq': 'Try turning on squeezing, a bigger case, another bag or fewer items.',
+    'banner.cabin': 'Take {items} on board.',
+    'banner.cabinHint': "Lithium batteries aren't allowed in checked bags. Add a carry-on or under-seat bag and it goes there automatically.",
     'banner.more': '…and {n} more',
     'banner.failed': 'Packing failed:',
     'reason.weight': 'would exceed the weight limit',
     'reason.tooBig': 'larger than the suitcase in every orientation',
     'reason.noSpace': 'no free space with enough support',
+    'reason.tooBigAll': 'larger than every bag in every orientation',
+    'reason.cabinFull': 'must travel in the cabin, but no cabin bag has room',
     'suitcase.custom': 'Custom suitcase',
 
     'toast.sharedLoaded': 'Loaded a shared packing list. Press "Pack my suitcase" to see it.',
@@ -148,6 +175,7 @@ const STRINGS = {
     'toast.copyFail': "Couldn't copy",
     'toast.installed': 'Installed. Open "Smart Packing Assistant" from your Start menu or desktop.',
     'toast.lang': 'Language: English',
+    'toast.bagLimit': 'Up to {n} bags.',
 
     'print.title': 'Packing checklist',
     'print.alt': 'The packed suitcase',
@@ -194,7 +222,8 @@ const STRINGS = {
     'mode.serverTitle': '由 Python 計算擺法；儲存的行程存放在 data/trips.json',
     'mode.browserTitle': '在這個瀏覽器中計算擺法；儲存的行程只存在這個瀏覽器裡',
 
-    's1.title': '你的行李箱',
+    's1.title': '你的行李',
+    's1.bags': '你的行李',
     's1.sizes': '行李箱尺寸',
     's1.length': '長',
     's1.width': '寬',
@@ -202,6 +231,18 @@ const STRINGS = {
     's1.max': '上限',
     's1.hint': '請填內部尺寸，可依你的行李箱修改。',
     's1.colour': '行李箱顏色',
+    'bag.n': '第 {n} 個包',
+    'bag.add': '＋ 再加一個包',
+    'bag.addTitle': '把東西分裝到幾個包裡，例如行李箱加背包',
+    'bag.remove': '移除{name}',
+    'bag.kind': '這個包怎麼帶上飛機',
+    'kind.checked': '託運',
+    'kind.cabin': '登機箱',
+    'kind.personal': '座位下',
+    'kind.checkedTitle': '託運：放在貨艙',
+    'kind.cabinTitle': '登機行李：放在頭頂置物櫃',
+    'kind.personalTitle': '隨身小包：放在前方座位底下',
+    'kind.hint': '行動電源只會放進隨身帶上飛機的包。貴重物品和標了 ★ 的物品會放進座位下的包。也可以替任何物品指定要放哪個包。',
     'unit.cm': '公分',
     'unit.kg': '公斤',
 
@@ -233,6 +274,10 @@ const STRINGS = {
     'item.add': '增加一件{name}',
     'item.pinTitle': '優先取用：最後放入、放在最上層，方便拿取',
     'item.pinAria': '優先取用{name}',
+    'item.bag': '{name}要放哪個包',
+    'item.bagAuto': '自動',
+    'tag.cabin': '限隨身',
+    'tag.cabinTitle': '鋰電池不能託運，會放進隨身帶上飛機的包',
     'tag.fragile': '易碎',
     'tag.upright': '需直立',
     'tag.soft': '可壓縮',
@@ -254,13 +299,14 @@ const STRINGS = {
     'sum.clear': '清除',
     'sum.squeeze': '空間不夠時壓縮軟質衣物',
     'sum.pack': '開始打包',
+    'sum.packBags': '開始分裝打包',
     'fill.empty': '先加入一些物品吧。',
     'fill.overKg': '超過 {max} 公斤上限，部分物品會放不進去。',
-    'fill.over': '物品體積佔行李箱的 {pct}%，無法全部放入。',
-    'fill.overSq': '物品體積佔行李箱的 {pct}%，即使壓縮也無法全部放入。',
-    'fill.tight': '佔 {pct}% 的體積，有點擠，形狀特殊的物品可能放不下。',
-    'fill.tightSq': '佔 {pct}% 的體積，有點擠，軟質衣物可能會被壓縮。',
-    'fill.ok': '物品約佔行李箱 {pct}% 的體積。',
+    'fill.over': '物品體積佔空間的 {pct}%，無法全部放入。',
+    'fill.overSq': '物品體積佔空間的 {pct}%，即使壓縮也無法全部放入。',
+    'fill.tight': '佔 {pct}% 的空間，有點擠，形狀特殊的物品可能放不下。',
+    'fill.tightSq': '佔 {pct}% 的空間，有點擠，軟質衣物可能會被壓縮。',
+    'fill.ok': '物品約佔 {pct}% 的空間。',
 
     'stage.canvas': '打包完成的行李箱 3D 畫面',
     'm.space': '空間使用率',
@@ -271,6 +317,8 @@ const STRINGS = {
     'm.squeezedTitle': '把軟質衣物壓扁一點，讓所有東西都放得下',
     'm.onTop': '{a}/{b} 件優先取用物品在最上層',
     'm.tried': '嘗試了 {n} 種擺法，耗時 {s} 秒',
+    'm.bagItems': '{n} 件',
+    'm.bagFocus': '查看這個包',
     'view.xray': '透視箱壁',
     'view.top': '俯視圖',
     'view.reset': '重設視角',
@@ -290,19 +338,26 @@ const STRINGS = {
     'steps.title': '打包步驟',
     'steps.copy': '複製',
     'steps.print': '列印清單',
+    'steps.bagMeta': '{n} 件 · {kg} 公斤',
     'badge.squeezed': '已壓縮 {n}%',
     'badge.first': '優先取用',
     'badge.fragile': '易碎',
+    'badge.cabin': '限隨身',
+    'badge.cabinWarn': '請隨身帶上飛機',
 
     'banner.didntFit1': '有 1 件物品放不下。',
     'banner.didntFit': '有 {n} 件物品放不下。',
-    'banner.hint': '可以換大一點的行李箱，或減少物品。',
-    'banner.hintNoSq': '可以開啟壓縮、換大一點的行李箱，或減少物品。',
+    'banner.hint': '可以換大一點的行李箱、多帶一個包，或減少物品。',
+    'banner.hintNoSq': '可以開啟壓縮、換大一點的行李箱、多帶一個包，或減少物品。',
+    'banner.cabin': '請把{items}隨身帶上飛機。',
+    'banner.cabinHint': '鋰電池不能託運。加一個登機箱或座位下的包，它就會自動放進去。',
     'banner.more': '…還有 {n} 件',
     'banner.failed': '打包失敗：',
     'reason.weight': '會超過重量上限',
     'reason.tooBig': '不論怎麼擺都比行李箱大',
     'reason.noSpace': '沒有能穩穩放置的空位',
+    'reason.tooBigAll': '不論怎麼擺都比每個包大',
+    'reason.cabinFull': '必須隨身帶上飛機，但隨身的包已經放不下',
     'suitcase.custom': '自訂行李箱',
 
     'toast.sharedLoaded': '已載入分享的打包清單，按「開始打包」即可查看。',
@@ -323,6 +378,7 @@ const STRINGS = {
     'toast.copyFail': '無法複製',
     'toast.installed': '已安裝，可從開始選單或桌面開啟「智慧打包助手」。',
     'toast.lang': '語言：繁體中文',
+    'toast.bagLimit': '最多 {n} 個包。',
 
     'print.title': '打包清單',
     'print.alt': '打包完成的行李箱',
@@ -417,11 +473,13 @@ const STEP_TEXT = {
     side: ['left', 'centre', 'right'],
     centre: 'centre',
     region: (d, s) => `${d}-${s}`,
-    floor: 'on the bottom of the case',
+    // `bag` is the bag's name when there are several, otherwise undefined
+    floor: (bag) => `on the bottom of the ${bag || 'case'}`,
     onTop: (list) => `on top of ${list.join(', ')}`,
-    how: (o, r, sup) => `${o.charAt(0).toUpperCase()}${o.slice(1)} in the ${r} of the case, ${sup}.`,
-    full: (name, o, r, sup) => `Place ${name} ${o} in the ${r} of the case, ${sup}.`,
+    how: (o, r, sup, bag) => `${o.charAt(0).toUpperCase()}${o.slice(1)} in the ${r} of the ${bag || 'case'}, ${sup}.`,
+    full: (name, o, r, sup, bag) => `Place ${name} ${o} in the ${r} of the ${bag || 'case'}, ${sup}.`,
     squeeze: (cm) => `Press it down to about ${cm} cm thick.`,
+    cabin: 'Batteries like this must travel in the cabin: carry it on board.',
     top: "It's on top, so you can grab it without unpacking.",
     buried: '(Marked need-it-first, but it had to go lower down to fit everything.)',
     join: ' ',
@@ -432,11 +490,12 @@ const STEP_TEXT = {
     side: ['左側', '中央', '右側'],
     centre: '正中央',
     region: (d, s) => `${d}${s}`,
-    floor: '直接放在箱底',
+    floor: (bag) => (bag ? `直接放在${bag}底部` : '直接放在箱底'),
     onTop: (list) => `疊在${list.join('、')}上面`,
-    how: (o, r, sup) => `${o}在行李箱${r}，${sup}。`,
-    full: (name, o, r, sup) => `把${name}${o}在行李箱${r}，${sup}。`,
+    how: (o, r, sup, bag) => `${o}在${bag || '行李箱'}${r}，${sup}。`,
+    full: (name, o, r, sup, bag) => `把${name}${o}在${bag || '行李箱'}${r}，${sup}。`,
     squeeze: (cm) => `壓扁到約 ${cm} 公分厚。`,
+    cabin: '這類電池必須隨身帶上飛機，不能託運。',
     top: '它在最上層，不用翻行李就能拿到。',
     buried: '（已標為優先取用，但為了全部放得下，只能放在較下層。）',
     join: '',
@@ -503,6 +562,8 @@ const REASONS = {
   'would exceed the weight limit': 'reason.weight',
   'larger than the suitcase in every orientation': 'reason.tooBig',
   'no free space with enough support': 'reason.noSpace',
+  'larger than every bag in every orientation': 'reason.tooBigAll',
+  'must travel in the cabin, but no cabin bag has room': 'reason.cabinFull',
 };
 export function reasonText(reason) {
   return REASONS[reason] ? t(REASONS[reason]) : reason;
@@ -511,9 +572,10 @@ export function reasonText(reason) {
 /**
  * Describe one packing step in the current language.
  * Returns { how, full }: `how` for the step list (item name shown separately),
- * `full` for copying and printing.
+ * `full` for copying and printing. `suitcase` is the bag the item goes in;
+ * `bagName` names it in the text (pass it only when there are several bags).
  */
-export function describeStep(st, suitcase, nameOf) {
+export function describeStep(st, suitcase, nameOf, bagName) {
   const w = STEP_TEXT[lang] || STEP_TEXT.en;
   const dims = [...st.original_size].sort((a, b) => a - b);
   const h = st.size[2];
@@ -524,15 +586,16 @@ export function describeStep(st, suitcase, nameOf) {
   const third = (v, total) => Math.min(2, Math.floor((3 * v) / total));
   const di = third(cy, suitcase.width), si = third(cx, suitcase.length);
   const region = di === 1 && si === 1 ? w.centre : w.region(w.depth[di], w.side[si]);
-  const support = st.supported_by && st.supported_by.length ? w.onTop(st.supported_by.map(nameOf)) : w.floor;
+  const support = st.supported_by && st.supported_by.length ? w.onTop(st.supported_by.map(nameOf)) : w.floor(bagName);
   const extras = [];
+  if (st.cabin_warning) extras.push(w.cabin);
   if (st.squeezed_pct) extras.push(w.squeeze(Math.round(Math.min(...st.original_size) * 10) / 10));
   if (st.priority) {
     const onTop = st.priority_on_top ?? !/lower down/.test(st.instruction || '');
     extras.push(onTop ? w.top : w.buried);
   }
   const tail = extras.length ? w.join + extras.join(w.join) : '';
-  return { how: w.how(o, region, support) + tail, full: w.full(nameOf(st.id), o, region, support) + tail };
+  return { how: w.how(o, region, support, bagName) + tail, full: w.full(nameOf(st.id), o, region, support, bagName) + tail };
 }
 
 // For tests: every language must translate every key and catalogue entry.

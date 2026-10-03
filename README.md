@@ -22,6 +22,22 @@ dropping into place, step by step.
 - **Need it first** (★ next to any item): packed last so it sits on top,
   unless that would leave something out. Passport, documents, wallet,
   earbuds, power bank, medicine and sleep mask are starred by default
+- **Several bags** (up to 3, e.g. a checked suitcase plus a backpack): one
+  item list is split across them and every bag is packed, side by side in 3D.
+  Each bag says where it travels (checked, carry-on or under the seat), and
+  the split follows airline sense:
+  - **power banks** (spare lithium batteries) only go in bags you take on
+    board, since they aren't allowed in the hold. With no such bag you get a
+    "carry this on board" warning
+  - **valuables** (laptop, tablet, camera, passport, documents, medicine,
+    jewellery, wallet...) and ★ items go in the bag under your seat first
+  - **everything else** fills the checked bag first, and spills over into the
+    others only when it has to
+  - **pick a bag** for any item (the menu under it) to override all of this
+
+  The animation follows each bag as it's packed, the steps are grouped by
+  bag, and a card per bag shows how full and how heavy it is (click it to
+  look at that bag)
 - **Saved trips**: name and reuse a selection (e.g. "Tokyo in March"),
   stored in `data/trips.json`
 - **Share**: a link (or a trip code in the online version) that loads your
@@ -62,7 +78,9 @@ second copy.
 
 How to use it:
 
-1. Choose a suitcase, or edit the inside dimensions to match yours.
+1. Choose a suitcase, or edit the inside dimensions to match yours. To
+   bring more than one bag, press **+ Add a bag** and set where each one
+   travels (checked, carry-on or under the seat).
 2. Pick a trip preset, or add items with **+ / −** (use search and the
    category filters). Star (★) anything you'll need first. Add anything
    missing under **+ Add your own item**.
@@ -134,7 +152,8 @@ The packing engine also runs without the UI:
 python main.py                                   # data\sample_trip.json
 python main.py --input data\overpacked_trip.json
 python main.py --restarts 1000 --time-limit 30 --min-support 0.6
-python -m unittest discover tests                # 36 tests (JS engine tests need Node.js)
+python main.py --input data\two_bag_trip.json    # split across several bags
+python -m unittest discover tests                # 55 tests (JS engine tests need Node.js)
 ```
 
 It writes `output\layout.json`, `placement_log.txt` and (with matplotlib)
@@ -172,6 +191,20 @@ against the same rules as the Python one.
 5. **Squeezing.** If not everything fits at natural size, soft items shrink
    along their thinnest side (each item has its own `squeeze` allowance, for
    example 35% for a folded T-shirt) and the search runs again.
+6. **Several bags.** The greedy pass puts each item in the first bag on its
+   preference list that has room for it (`bag_preferences`: the bag you
+   picked; cabin bags only for lithium batteries; under-seat first for
+   valuables and ★ items; the hold first for the rest). The same search
+   then optimises the whole trip at once, ranking layouts by packed volume,
+   item count, need-it-first items on top, and then how many items ended up
+   further down their preference list. With one bag it gives exactly the
+   same result as the single-suitcase packer.
+
+A trip file for the command line can list `"bags"` instead of
+`"suitcase"`; see `data/two_bag_trip.json` and `packing_assistant/data_io.py`.
+The web API takes the same: `POST /api/pack` with `{"bags": [...]}` returns
+`bags` (with per-bag metrics) and one list of `steps`, each with the index of
+its `bag`.
 
 It stops at the time limit, or once everything fits and the layout has
 stopped improving.
@@ -190,7 +223,7 @@ packing_assistant/
   data_io.py                 trip JSON loading
 data/
   catalog.json               89 items, 4 suitcases, 6 trip presets (generated)
-  sample_trip.json, overpacked_trip.json
+  sample_trip.json, overpacked_trip.json, two_bag_trip.json
 tools/make_catalog.py        edit items here, then run it to regenerate catalog.json
 tools/build_hosted.py        builds the website into dist/site/ (--artifact: single-page form)
 Start Packing Assistant.bat  double-click launcher (Windows)
@@ -212,7 +245,7 @@ web/
   models/                    drop custom .glb files here
   dev/gallery.html           preview of every model
 blender/animate_packing.py   Blender animation from layout.json
-tests/                       engine, catalog and server tests
+tests/                       engine, several-bag, catalog and server tests
 ```
 
 ## Adding catalog items
@@ -227,8 +260,7 @@ are the keys of `MODEL_BUILDERS` in `web/js/models.js`.
 1. **Real product models.** Export your own shoes, shirt and so on from
    Blender as .glb files into `web/models/`.
 2. **Weight balance.** Keep heavy items near the wheels and the hinge side.
-3. **Multiple bags.** Split one list across a suitcase and a backpack.
-4. **Accounts and sync.** Saved trips available on every device (needs a
+3. **Accounts and sync.** Saved trips available on every device (needs a
    hosted backend).
-5. **Exact solver.** Add an exact solver (for example CP-SAT) for small
+4. **Exact solver.** Add an exact solver (for example CP-SAT) for small
    lists, to measure how close the heuristic gets to the best possible.

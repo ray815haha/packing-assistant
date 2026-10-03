@@ -7,7 +7,7 @@ Uses only the Python standard library. The page is served from ./web, and the
 packing runs in Python via two JSON endpoints:
 
     GET    /api/catalog      item library, suitcase presets, trip profiles
-    POST   /api/pack         {suitcase, items, custom_items, options} -> layout
+    POST   /api/pack         {suitcase | bags, items, custom_items, options} -> layout
     GET    /api/trips        saved trips (data/trips.json)
     POST   /api/trips        save a trip {name, suitcase, qty, priority, custom, shell}
     DELETE /api/trips/<id>   delete a saved trip
@@ -28,11 +28,11 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import unquote, urlparse
 
-from packing_assistant import PackerConfig, pack
+from packing_assistant import PackerConfig, pack, pack_bags
 from packing_assistant.catalog import (
-    build_trip, custom_models, delete_trip, enrich_layout, load_catalog, load_trips, save_trip,
+    build_bag_trip, build_trip, custom_models, delete_trip, enrich_layout, load_catalog, load_trips, save_trip,
 )
-from packing_assistant.visualizer import layout_dict
+from packing_assistant.visualizer import bags_layout_dict, layout_dict
 
 ROOT = Path(__file__).resolve().parent
 WEB = ROOT / "web"
@@ -47,7 +47,6 @@ mimetypes.add_type("application/manifest+json", ".webmanifest")
 
 def pack_request(request: dict) -> dict:
     catalog = load_catalog()
-    suitcase, items = build_trip(catalog, request)
     opts = request.get("options", {})
     config = PackerConfig(
         min_support=min(1.0, max(0.3, float(opts.get("min_support", 0.7)))),
@@ -57,8 +56,12 @@ def pack_request(request: dict) -> dict:
         allow_squeeze=bool(opts.get("allow_squeeze", True)),
     )
     started = time.perf_counter()
-    result = pack(suitcase, items, config)
-    layout = layout_dict(result)
+    if "bags" in request:  # several bags: {bags: [...]} instead of {suitcase: {...}}
+        bags, items = build_bag_trip(catalog, request)
+        layout = bags_layout_dict(pack_bags(bags, items, config))
+    else:
+        suitcase, items = build_trip(catalog, request)
+        layout = layout_dict(pack(suitcase, items, config))
     layout["elapsed_s"] = round(time.perf_counter() - started, 2)
     return enrich_layout(layout, catalog, request)
 

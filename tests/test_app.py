@@ -53,7 +53,9 @@ class CatalogTests(unittest.TestCase):
         ids = {i["id"] for i in self.catalog["items"]}
         cases = {s["id"] for s in self.catalog["suitcases"]}
         for p in self.catalog["profiles"]:
-            self.assertIn(p["suitcase"], cases)
+            self.assertTrue(p["bags"], p["id"])
+            for b in p["bags"]:
+                self.assertIn(b, cases)
             for k in p["items"]:
                 self.assertIn(k, ids, (p["id"], k))
 
@@ -94,13 +96,23 @@ class CatalogTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             build_trip(self.catalog, {"suitcase": {"length": 10, "width": 10, "height": 10}, "items": [{"id": "nope"}]})
 
-    def test_every_profile_fits_its_suitcase(self):
+    def test_every_profile_fits_its_bags(self):
+        cases = {s["id"]: s for s in self.catalog["suitcases"]}
         for p in self.catalog["profiles"]:
-            s = next(x for x in self.catalog["suitcases"] if x["id"] == p["suitcase"])
-            req = {"suitcase": s, "items": [{"id": k, "quantity": v} for k, v in p["items"].items()],
+            bags = [{**cases[b], "id": f"bag{i}"} for i, b in enumerate(p["bags"])]
+            req = {"bags": bags, "items": [{"id": k, "quantity": v} for k, v in p["items"].items()],
                    "options": {"time_limit": 6}}
             layout = app.pack_request(req)
             self.assertFalse(layout["unpacked"], f"{p['id']}: {[u['name'] for u in layout['unpacked']]}")
+            self.assertEqual(len(layout["bags"]), len(p["bags"]))
+            # lithium batteries never end up in the hold when there's a cabin bag
+            for st in layout["steps"]:
+                self.assertFalse(st["cabin_warning"], (p["id"], st["name"]))
+
+    def test_suitcases_say_where_they_travel(self):
+        for s in self.catalog["suitcases"]:
+            self.assertIn(s["kind"], ("checked", "cabin", "personal"))
+            self.assertIn(s["style"], ("hard", "soft"))
 
 
 class ServerTests(unittest.TestCase):
@@ -170,6 +182,17 @@ class ServerTests(unittest.TestCase):
         with urllib.request.urlopen(req) as r:
             data = json.loads(r.read())
         self.assertEqual(data["metrics"]["items_packed"], 2)
+        # several bags: same endpoint, {bags: [...]} instead of {suitcase: {...}}
+        two = json.dumps({"bags": [{"id": "a", "length": 40, "width": 30, "height": 20},
+                                   {"id": "b", "length": 30, "width": 20, "height": 10, "kind": "personal"}],
+                          "items": [{"id": "book", "quantity": 2}, {"id": "passport", "bag": "a"}],
+                          "options": {"time_limit": 1}}).encode()
+        req = urllib.request.Request(self.base + "/api/pack", data=two, headers={"Content-Type": "application/json"})
+        with urllib.request.urlopen(req) as r:
+            data = json.loads(r.read())
+        self.assertEqual([b["id"] for b in data["bags"]], ["a", "b"])
+        self.assertEqual(next(s["bag"] for s in data["steps"] if s["id"] == "passport"), 0)
+        self.assertEqual([s["step"] for s in data["steps"]], [1, 2, 3])
         bad = urllib.request.Request(self.base + "/api/pack", data=b'{"items": []}')
         with self.assertRaises(urllib.error.HTTPError) as ctx:
             urllib.request.urlopen(bad)

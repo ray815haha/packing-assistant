@@ -11,7 +11,7 @@ import json
 from pathlib import Path
 from typing import Any, Optional
 
-from .data_io import items_from_list, suitcase_from_dict
+from .data_io import bags_from_list, items_from_list, suitcase_from_dict
 from .models import Item, Suitcase
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -42,7 +42,22 @@ def build_trip(catalog: dict[str, Any], request: dict[str, Any]) -> tuple[Suitca
       "custom_items": [{"id", "name", "length", "width", "height", "weight", ...}]
     }
     """
-    suitcase = suitcase_from_dict(request["suitcase"])
+    return suitcase_from_dict(request["suitcase"]), _trip_items(catalog, request)
+
+
+def build_bag_trip(catalog: dict[str, Any], request: dict[str, Any]) -> tuple[list[Suitcase], list[Item]]:
+    """Like build_trip, for a request with several bags:
+
+    request = {
+      "bags": [{"id", "name", "kind", "length", "width", "height", "max_weight"}, ...],
+      "items": [{"id": "<catalog id>", "quantity": 2, "bag": "<bag id>"}, ...],  # bag optional
+      "custom_items": [{..., "bag": "<bag id>"}]
+    }
+    """
+    return bags_from_list(request["bags"]), _trip_items(catalog, request)
+
+
+def _trip_items(catalog: dict[str, Any], request: dict[str, Any]) -> list[Item]:
     by_id = {e["id"]: e for e in catalog["items"]}
     entries: list[dict[str, Any]] = []
     for sel in request.get("items", []):
@@ -54,6 +69,8 @@ def build_trip(catalog: dict[str, Any], request: dict[str, Any]) -> tuple[Suitca
             e = {**entry, "quantity": qty}
             if sel.get("priority") is not None:  # user override of "need it first"
                 e["priority"] = bool(sel["priority"])
+            if sel.get("bag"):  # the user put it in a particular bag
+                e["bag"] = sel["bag"]
             entries.append(e)
     for i, custom in enumerate(request.get("custom_items", [])):
         cid = str(custom.get("id") or f"custom{i + 1}")
@@ -63,7 +80,7 @@ def build_trip(catalog: dict[str, Any], request: dict[str, Any]) -> tuple[Suitca
     items = items_from_list(entries)
     if len(items) > MAX_ITEMS:
         raise ValueError(f"Too many items ({len(items)}); the limit is {MAX_ITEMS}.")
-    return suitcase, items
+    return items
 
 
 def enrich_layout(layout: dict[str, Any], catalog: dict[str, Any], request: dict[str, Any],
@@ -128,6 +145,8 @@ def save_trip(trip: dict[str, Any], path: Optional[Path] = None) -> dict[str, An
         "qty": {str(k): int(v) for k, v in (trip.get("qty") or {}).items() if int(v) > 0},
         "priority": {str(k): bool(v) for k, v in (trip.get("priority") or {}).items()},
         "custom": list(trip.get("custom") or [])[:50],
+        "bags": _clean_bags(trip.get("bags")),
+        "assign": {str(k): str(v)[:20] for k, v in (trip["assign"] if isinstance(trip.get("assign"), dict) else {}).items()},
     }
     trips = [t for t in load_trips(path) if t.get("id") != clean["id"] and t.get("name") != name]
     trips.insert(0, clean)
@@ -136,6 +155,24 @@ def save_trip(trip: dict[str, Any], path: Optional[Path] = None) -> dict[str, An
     tmp.write_text(json.dumps(trips[:MAX_TRIPS], indent=1), encoding="utf-8")
     tmp.replace(path)
     return clean
+
+
+def _clean_bags(bags: Any) -> list[dict[str, Any]]:
+    """The bag list of a saved trip (as the web app sends it), with sane values."""
+    out = []
+    for b in (bags if isinstance(bags, list) else [])[:4]:
+        if not isinstance(b, dict):
+            continue
+        dims = b.get("dims") if isinstance(b.get("dims"), dict) else {}
+        out.append({
+            "uid": str(b.get("uid", ""))[:20],
+            "presetId": str(b.get("presetId", ""))[:30],
+            "kind": b.get("kind") if b.get("kind") in ("checked", "cabin", "personal") else "checked",
+            "shell": str(b.get("shell", ""))[:9],
+            "dims": {k: float(dims[k]) for k in ("length", "width", "height", "max_weight")
+                     if isinstance(dims.get(k), (int, float)) and dims[k] > 0},
+        })
+    return out
 
 
 def delete_trip(trip_id: str, path: Optional[Path] = None) -> bool:

@@ -36,7 +36,8 @@
     <!-- ============================ left: choices ============================ -->
     <aside class="panel" id="panel">
       <section class="block">
-        <h2><span class="num">1</span> <span data-i18n="s1.title">Your suitcase</span></h2>
+        <h2><span class="num">1</span> <span data-i18n="s1.title">Your bags</span></h2>
+        <div class="bag-tabs" id="bagTabs" role="tablist" data-i18n-aria="s1.bags" aria-label="Your bags"></div>
         <div class="suitcases" id="suitcases" role="radiogroup" data-i18n-aria="s1.sizes" aria-label="Suitcase size"></div>
         <div class="dims" id="dims">
           <label><span data-i18n="s1.length">Length</span><input type="number" id="dimL" min="10" max="150" step="1"><span data-i18n="unit.cm">cm</span></label>
@@ -45,7 +46,11 @@
           <label><span data-i18n="s1.max">Max</span><input type="number" id="dimKg" min="0" max="50" step="0.5"><span data-i18n="unit.kg">kg</span></label>
         </div>
         <p class="hint" data-i18n="s1.hint">Inside measurements. Edit them to match your own bag.</p>
-        <div class="swatches" id="swatches" data-i18n-aria="s1.colour" aria-label="Suitcase colour"></div>
+        <div class="bag-row">
+          <div class="kinds" id="bagKind" role="radiogroup" data-i18n-aria="bag.kind" aria-label="Where this bag travels"></div>
+          <div class="swatches" id="swatches" data-i18n-aria="s1.colour" aria-label="Suitcase colour"></div>
+        </div>
+        <p class="hint kind-hint" id="kindHint" data-i18n="kind.hint" hidden>Power banks only go in bags you take on board. Valuables and ★ items go in the bag under your seat.</p>
       </section>
 
       <section class="block">
@@ -117,7 +122,7 @@
         </label>
         <button class="btn primary" id="packBtn" type="button" disabled>
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12l5 5L20 7"/></svg>
-          <span data-i18n="sum.pack">Pack my suitcase</span>
+          <span id="packLabel">Pack my suitcase</span>
         </button>
       </footer>
     </aside>
@@ -132,6 +137,7 @@
           <div class="metric"><span class="label" data-i18n="m.items">Items packed</span><span class="value" id="mItems">–</span></div>
           <div class="metric"><span class="label" data-i18n="m.weight">Weight</span><span class="value" id="mWeight">–</span></div>
           <div class="metric"><span class="label" data-i18n="m.free">Free space</span><span class="value" id="mFree">–</span></div>
+          <div class="bag-cards" id="bagCards"></div>
           <div class="metric-notes" id="metricNotes"></div>
         </div>
 

@@ -1,4 +1,5 @@
-// Procedural open hard-shell suitcase. Inner packing space is L x W x H with
+// Procedural open bag: a hard-shell suitcase ("hard") or a soft fabric bag
+// ("soft", e.g. an under-seat backpack). Inner packing space is L x W x H with
 // its front-left-bottom inner corner at the origin (same frame as the optimiser).
 
 import { MeshBuilder } from './engine/geometry.js';
@@ -6,17 +7,20 @@ import { hexToRgb, shade, mix } from './engine/math.js';
 
 const T = 1.6; // shell thickness (cm)
 
-export function buildSuitcase(renderer, L, W, H, shellHex = '#2f4858') {
+export function buildSuitcase(renderer, L, W, H, shellHex = '#2f4858', style = 'hard') {
+  const soft = style === 'soft';
   const shell = hexToRgb(shellHex);
   const lining = mix(shell, [0.85, 0.83, 0.8], 0.75);
+  const gloss = soft ? 0.12 : 0.45; // fabric vs polycarbonate
   const out = { walls: [], solid: [] };
 
   // floor (solid) -------------------------------------------------------------
   const floor = new MeshBuilder();
-  floor.push().color(shade(shell, 0.9), 0.35).translate(L / 2, W / 2, -T / 2).softBox(L + 2 * T, W + 2 * T, T, 0.25, 0.1).pop();
+  floor.push().color(shade(shell, 0.9), soft ? 0.1 : 0.35).translate(L / 2, W / 2, -T / 2)
+    .softBox(L + 2 * T, W + 2 * T, T, soft ? 0.6 : 0.25, 0.1).pop();
   floor.push().color(lining, 0.02).translate(L / 2, W / 2, 0.03).box(L, W, 0.05).pop();
   // spinner wheels on the left end (the case is lying on its back)
-  for (const y of [3.5, W - 3.5]) {
+  for (const y of soft ? [] : [3.5, W - 3.5]) {
     floor.push().color([0.12, 0.12, 0.13], 0.3).translate(-T - 2.2, y, -T + 2.2).rotateX(90).cylinder(2.2, 2.0, { seg: 20 }).pop();
     floor.push().color([0.3, 0.3, 0.32], 0.6).translate(-T - 1.2, y, -T + 3.4).box(2.4, 3, 1.2).pop();
   }
@@ -25,10 +29,14 @@ export function buildSuitcase(renderer, L, W, H, shellHex = '#2f4858') {
   // walls (can turn see-through) -------------------------------------------------
   const wall = (x, y, sx, sy, isFront) => {
     const b = new MeshBuilder();
-    b.color(shell, 0.45).translate(x, y, H / 2).softBox(sx, sy, H, 0.12, 0.15);
-    // horizontal ribs on the outside
+    b.color(shell, gloss).translate(x, y, H / 2).softBox(sx, sy, H, soft ? 0.45 : 0.12, soft ? 0.5 : 0.15);
+    if (soft && isFront) {
+      // zipped front pocket
+      b.push().color(shade(shell, 0.82), 0.1).translate(0, -T / 2 - 0.5, -H * 0.08).softBox(sx * 0.62, 1, H * 0.6, 0.5, 0.5).pop();
+      b.push().color([0.12, 0.12, 0.13], 0.4).translate(0, -T / 2 - 1.05, H * 0.2).box(sx * 0.55, 0.15, 0.35).pop();
+    }
     // two moulded ribs along the outside of each long wall
-    if (sx > sy) {
+    if (!soft && sx > sy) {
       for (const k of [0.3, 0.7]) {
         b.push().color(shade(shell, 0.85), 0.5).translate(0, isFront ? -T / 2 : T / 2, H * (k - 0.5)).box(sx * 0.96, 0.3, 0.8).pop();
       }
@@ -43,7 +51,7 @@ export function buildSuitcase(renderer, L, W, H, shellHex = '#2f4858') {
 
   // rim with zip and ribs, always solid so the outline stays readable
   const rim = new MeshBuilder();
-  rim.color(shade(shell, 0.55), 0.4);
+  rim.color(shade(shell, soft ? 0.75 : 0.55), soft ? 0.1 : 0.4);
   rim.push().translate(L / 2, -T / 2, H - 0.2).box(L + 2 * T, T, 0.4).pop();
   rim.push().translate(L / 2, W + T / 2, H - 0.2).box(L + 2 * T, T, 0.4).pop();
   rim.push().translate(-T / 2, W / 2, H - 0.2).box(T, W + 2 * T, 0.4).pop();
@@ -53,11 +61,17 @@ export function buildSuitcase(renderer, L, W, H, shellHex = '#2f4858') {
   rim.push().translate(L / 2, -T / 2, H + 0.05).box(L + 2 * T, 0.5, 0.12).pop();
   rim.push().translate(L + T / 2, W / 2, H + 0.05).box(0.5, W + 2 * T, 0.12).pop();
   rim.push().translate(-T / 2, W / 2, H + 0.05).box(0.5, W + 2 * T, 0.12).pop();
-  // carry handle on the front wall
-  rim.color([0.1, 0.1, 0.11], 0.35).push().translate(L / 2, -T - 0.9, H * 0.55).rotateX(90).scale(1, 0.5, 1)
-    .torus(7, [0.9, 0.9], { start: 0, arc: Math.PI, seg: 20, tubeSeg: 8 }).pop();
-  // telescopic handle housing on the left end
-  rim.color([0.25, 0.26, 0.28], 0.8).push().translate(-T - 0.6, W / 2, H / 2).box(1.2, Math.min(W * 0.6, 22), H * 0.9).pop();
+  if (soft) {
+    // webbing grab handle on the left end
+    rim.color(shade(shell, 0.6), 0.1).push().translate(-T - 0.4, W / 2, H * 0.6).rotateY(90).scale(1, 0.45, 1)
+      .torus(5, [0.5, 1.2], { start: 0, arc: Math.PI, seg: 16, tubeSeg: 6 }).pop();
+  } else {
+    // carry handle on the front wall
+    rim.color([0.1, 0.1, 0.11], 0.35).push().translate(L / 2, -T - 0.9, H * 0.55).rotateX(90).scale(1, 0.5, 1)
+      .torus(7, [0.9, 0.9], { start: 0, arc: Math.PI, seg: 20, tubeSeg: 8 }).pop();
+    // telescopic handle housing on the left end
+    rim.color([0.25, 0.26, 0.28], 0.8).push().translate(-T - 0.6, W / 2, H / 2).box(1.2, Math.min(W * 0.6, 22), H * 0.9).pop();
+  }
   out.solid.push(renderer.createMesh(rim.build()));
 
   // open lid lying behind the case, hinged along the back edge ------------------
@@ -65,10 +79,16 @@ export function buildSuitcase(renderer, L, W, H, shellHex = '#2f4858') {
   const lidDepth = Math.max(4, H * 0.35);
   lid.translate(L / 2, W + T + lidDepth / 2 + 0.3, -T / 2);
   // lid lies flat on the floor behind the case, inside facing up
-  lid.push().color(shade(shell, 0.95), 0.45).translate(0, (W + 2 * T) / 2 - lidDepth / 2, 0)
-    .softBox(L + 2 * T, W + 2 * T, T, 0.25, 0.1).pop();
-  lid.push().color(shell, 0.45).translate(0, (W + 2 * T) / 2 - lidDepth / 2, lidDepth / 2)
-    .frame(L + 2 * T, W + 2 * T, T, lidDepth).pop();
+  lid.push().color(shade(shell, 0.95), gloss).translate(0, (W + 2 * T) / 2 - lidDepth / 2, 0)
+    .softBox(L + 2 * T, W + 2 * T, T, soft ? 0.6 : 0.25, 0.1).pop();
+  if (soft) {
+    // a soft bag's lid is a flat fabric flap with a zip running round its edge
+    lid.push().color([0.12, 0.12, 0.13], 0.4).translate(0, (W + 2 * T) / 2 - lidDepth / 2, T / 2 + 0.05)
+      .frame(L + 2 * T - 1.2, W + 2 * T - 1.2, 0.5, 0.12).pop();
+  } else {
+    lid.push().color(shell, 0.45).translate(0, (W + 2 * T) / 2 - lidDepth / 2, lidDepth / 2)
+      .frame(L + 2 * T, W + 2 * T, T, lidDepth).pop();
+  }
   lid.push().color(lining, 0.02).translate(0, (W + 2 * T) / 2 - lidDepth / 2, T / 2 + 0.03).box(L, W, 0.05).pop();
   // mesh divider panel with a zip
   lid.push().color(mix(lining, [0.2, 0.2, 0.22], 0.5), 0.05).translate(0, (W + 2 * T) / 2 - lidDepth / 2, T / 2 + 0.15)

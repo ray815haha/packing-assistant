@@ -19,12 +19,15 @@ export function makeItem(e) {
     fragile: !!e.fragile, upright: !!e.upright,
     squeeze: +(e.squeeze || 0), priority: !!e.priority,
     natural: e.natural || null,
+    // several bags only: the bag the user put it in, and "required" / "preferred" for the cabin
+    bag: e.bag ? String(e.bag) : null, cabin: e.cabin ? String(e.cabin) : '',
   };
   for (const k of ['length', 'width', 'height']) {
     if (!(it[k] > 0)) throw new Error(`Item '${it.id}' ${k} must be positive`);
   }
   if (it.weight < 0) throw new Error(`Item '${it.id}' weight cannot be negative`);
   if (!(it.squeeze >= 0 && it.squeeze < 0.9)) throw new Error(`Item '${it.id}' squeeze must be between 0 and 0.9`);
+  if (!['', 'required', 'preferred'].includes(it.cabin)) throw new Error(`Item '${it.id}' cabin must be 'required', 'preferred' or empty`);
   return it;
 }
 
@@ -101,13 +104,23 @@ function centerOfGravity(placements) {
   return [0, 1, 2].map((a) => placements.reduce((s, p) => s + (boxOf(p)[a] + p.size[a] / 2) * p.item.weight, 0) / total);
 }
 
+const cogHeight = (r) => { const cog = centerOfGravity(r.placements); return cog ? cog[2] / r.suitcase.height : 0; };
+const fillHeight = (r) => Math.max(0, ...r.placements.map((p) => p.z + p.size[2]));
+const naturalPacked = (placements) => placements.reduce((s, p) => s + naturalVolume(p.item), 0);
+const squeezedVolume = (placements) => placements.reduce((s, p) => s + naturalVolume(p.item) - volume(p.item), 0);
+
 function score(r) {
-  const cog = centerOfGravity(r.placements);
-  const cogH = cog ? cog[2] / r.suitcase.height : 0;
-  const fill = Math.max(0, ...r.placements.map((p) => p.z + p.size[2]));
-  const nat = r.placements.reduce((s, p) => s + naturalVolume(p.item), 0);
-  const sq = r.placements.reduce((s, p) => s + naturalVolume(p.item) - volume(p.item), 0);
-  return [round(nat, 6), r.placements.length, -buriedPriority(r.placements).length, -round(sq, 3), -round(cogH, 6), -fill];
+  return [round(naturalPacked(r.placements), 6), r.placements.length, -buriedPriority(r.placements).length,
+    -round(squeezedVolume(r.placements), 3), -round(cogHeight(r), 6), -fillHeight(r)];
+}
+
+// Several bags (mirrors MultiPackingResult.score): after keeping need-it-first
+// items on top, prefer items in the bag that suits them best.
+function multiScore(m) {
+  const all = m.placements;
+  return [round(naturalPacked(all), 6), all.length, -m.results.reduce((s, r) => s + buriedPriority(r.placements).length, 0),
+    -m.penalty, -round(squeezedVolume(all), 3), -round(m.results.reduce((s, r) => s + cogHeight(r), 0), 6),
+    -m.results.reduce((s, r) => s + fillHeight(r), 0)];
 }
 
 function cmp(a, b) {
@@ -146,62 +159,147 @@ export function metrics(r) {
   };
 }
 
+/** Totals over all bags, with the same keys as metrics() (mirrors MultiPackingResult.metrics). */
+function multiMetrics(m) {
+  const cap = m.bags.reduce((s, b) => s + b.length * b.width * b.height, 0);
+  const all = m.placements;
+  const used = all.reduce((a, p) => a + volume(p.item), 0);
+  const limits = m.bags.map((b) => b.max_weight ?? null);
+  return {
+    suitcase_volume_cm3: round(cap, 1),
+    packed_volume_cm3: round(used, 1),
+    unused_volume_cm3: round(cap - used, 1),
+    volume_efficiency_pct: round((100 * used) / cap, 2),
+    unused_volume_pct: round(100 * (1 - used / cap), 2),
+    items_packed: all.length,
+    items_total: all.length + m.unpacked.length,
+    items_unpacked: m.unpacked.map((u) => u.item.name),
+    packed_weight_kg: round(all.reduce((a, p) => a + p.item.weight, 0), 2),
+    weight_limit_kg: limits.some((w) => w == null) ? null : round(limits.reduce((a, w) => a + w, 0), 2),
+    squeezed_items: all.filter((p) => squeezedFraction(p.item) > 0.001).length,
+    priority_items: all.filter((p) => p.item.priority).length,
+    priority_buried: m.results.reduce((s, r) => s + buriedPriority(r.placements).length, 0),
+    bags_used: m.results.filter((r) => r.placements.length).length,
+    strategy: m.strategy,
+    attempts: m.attempts || 1,
+  };
+}
+
 // --------------------------------------------------------------------------- //
 // Single greedy pass (extreme points)
 // --------------------------------------------------------------------------- //
 export const RULES = ['max-contact', 'bottom-up', 'back-to-front'];
 
-function greedyPack(suitcase, items, cfg, rule, strategy) {
+const REASON = {
+  weight: 'would exceed the weight limit',
+  tooBig: 'larger than the suitcase in every orientation',
+  noSpace: 'no free space with enough support',
+  tooBigAll: 'larger than every bag in every orientation',
+  cabinFull: 'must travel in the cabin, but no cabin bag has room',
+};
+
+/** What is in one bag so far during a greedy pass. */
+const newBin = () => ({ placements: [], boxes: [], points: [[0, 0, 0]], weight: 0 });
+
+/** Put `item` in the best free spot of `bin`. Returns null if it was placed,
+ * otherwise why it didn't fit (mirrors ExtremePointPacker.place). */
+function place(bin, suitcase, item, cfg, rule) {
   const L = suitcase.length, W = suitcase.width, H = suitcase.height;
   const D = [L, W, H];
-  const sortedD = [...D].sort((a, b) => a - b);
-  const placements = [];
-  const boxes = [];
-  const unpacked = [];
-  let points = [[0, 0, 0]];
-  let weight = 0;
   const limit = suitcase.max_weight;
-
-  for (const item of items) {
-    if (limit != null && weight + item.weight > limit + EPS) {
-      unpacked.push({ item, reason: 'would exceed the weight limit' });
-      continue;
-    }
-    const orients = orientations(item);
-    if (!orients.some(([, s]) => [...s].sort((a, b) => a - b).every((v, i) => v <= sortedD[i] + EPS))) {
-      unpacked.push({ item, reason: 'larger than the suitcase in every orientation' });
-      continue;
-    }
-    let bestKey = null, best = null;
-    for (const pt of points) {
-      const [px, py, pz] = pt;
-      for (const [perm, [sx, sy, sz]] of orients) {
-        const x1 = px + sx, y1 = py + sy, z1 = pz + sz;
-        if (x1 > L + EPS || y1 > W + EPS || z1 > H + EPS) continue;
-        let hit = false;
-        for (const b of boxes) {
-          if (px < b[3] - EPS && b[0] < x1 - EPS && py < b[4] - EPS && b[1] < y1 - EPS && pz < b[5] - EPS && b[2] < z1 - EPS) { hit = true; break; }
-        }
-        if (hit) continue;
-        const c = [px, py, pz, x1, y1, z1];
-        const sup = support(c, boxes, placements, cfg);
-        if (sup === null) continue;
-        const key = rank(c, boxes, D, rule);
-        if (bestKey === null || cmp(key, bestKey) < 0) { bestKey = key; best = { pt, perm, size: [sx, sy, sz], sup }; }
+  if (limit != null && bin.weight + item.weight > limit + EPS) return REASON.weight;
+  const sortedD = [...D].sort((a, b) => a - b);
+  const orients = orientations(item);
+  if (!orients.some(([, s]) => [...s].sort((a, b) => a - b).every((v, i) => v <= sortedD[i] + EPS))) return REASON.tooBig;
+  const { boxes, placements } = bin;
+  let bestKey = null, best = null;
+  for (const pt of bin.points) {
+    const [px, py, pz] = pt;
+    for (const [perm, [sx, sy, sz]] of orients) {
+      const x1 = px + sx, y1 = py + sy, z1 = pz + sz;
+      if (x1 > L + EPS || y1 > W + EPS || z1 > H + EPS) continue;
+      let hit = false;
+      for (const b of boxes) {
+        if (px < b[3] - EPS && b[0] < x1 - EPS && py < b[4] - EPS && b[1] < y1 - EPS && pz < b[5] - EPS && b[2] < z1 - EPS) { hit = true; break; }
       }
+      if (hit) continue;
+      const c = [px, py, pz, x1, y1, z1];
+      const sup = support(c, boxes, placements, cfg);
+      if (sup === null) continue;
+      const key = rank(c, boxes, D, rule);
+      if (bestKey === null || cmp(key, bestKey) < 0) { bestKey = key; best = { pt, perm, size: [sx, sy, sz], sup }; }
     }
-    if (!best) {
-      unpacked.push({ item, reason: 'no free space with enough support' });
-      continue;
-    }
-    const p = { item, x: best.pt[0], y: best.pt[1], z: best.pt[2], perm: best.perm, size: best.size, step: placements.length + 1, supported_by: best.sup };
-    placements.push(p);
-    const box = boxOf(p);
-    boxes.push(box);
-    weight += item.weight;
-    points = updatePoints(points, box, boxes, D);
   }
-  return { suitcase, placements, unpacked, strategy, attempts: 1 };
+  if (!best) return REASON.noSpace;
+  const p = { item, x: best.pt[0], y: best.pt[1], z: best.pt[2], perm: best.perm, size: best.size, step: placements.length + 1, supported_by: best.sup };
+  placements.push(p);
+  const box = boxOf(p);
+  boxes.push(box);
+  bin.weight += item.weight;
+  bin.points = updatePoints(bin.points, box, boxes, D);
+  return null;
+}
+
+function greedyPack(suitcase, items, cfg, rule, strategy) {
+  const bin = newBin();
+  const unpacked = [];
+  for (const item of items) {
+    const reason = place(bin, suitcase, item, cfg, rule);
+    if (reason) unpacked.push({ item, reason });
+  }
+  return { suitcase, placements: bin.placements, unpacked, strategy, attempts: 1 };
+}
+
+// --------------------------------------------------------------------------- //
+// Several bags (mirrors bag_preferences / MultiBagPacker in optimizer.py)
+// --------------------------------------------------------------------------- //
+// Smaller = closer to you on the plane.
+export const KIND_RANK = { personal: 0, cabin: 1, checked: 2 };
+const inCabin = (bag) => bag.kind !== 'checked';
+
+/** The bags (indexes) `item` may go in, best first, and whether it is
+ * restricted to cabin bags. Put in a bag by the user: only that bag. Lithium
+ * batteries: cabin bags only. Valuables and need-it-first items: under-seat
+ * bag, then cabin, then hold. Everything else: the hold first. */
+export function bagPreferences(item, bags) {
+  const idx = bags.map((_, i) => i);
+  if (item.bag != null) {
+    const pinned = idx.filter((i) => bags[i].id === item.bag);
+    if (pinned.length) return [pinned, false];
+  }
+  const towardYou = [...idx].sort((a, b) => KIND_RANK[bags[a].kind] - KIND_RANK[bags[b].kind] || a - b);
+  if (item.cabin === 'required') {
+    const cabin = towardYou.filter((i) => inCabin(bags[i]));
+    // No cabin bag at all: pack it anyway; the steps flag it.
+    return cabin.length ? [cabin, true] : [towardYou, false];
+  }
+  if (item.cabin === 'preferred' || item.priority) return [towardYou, false];
+  return [[...idx].sort((a, b) => KIND_RANK[bags[b].kind] - KIND_RANK[bags[a].kind] || a - b), false];
+}
+
+function combinedReason(reasons, cabinOnly, nBags) {
+  if (cabinOnly) return REASON.cabinFull;
+  if (new Set(reasons).size === 1) return reasons[0] === REASON.tooBig && nBags > 1 ? REASON.tooBigAll : reasons[0];
+  return REASON.noSpace;
+}
+
+function multiPack(bags, items, cfg, rule, strategy, prefs) {
+  const bins = bags.map(() => newBin());
+  const unpacked = [];
+  let penalty = 0;
+  for (const item of items) {
+    const [order, cabinOnly] = prefs(item);
+    const reasons = [];
+    let placed = false;
+    for (let rank = 0; rank < order.length && !placed; rank++) {
+      const i = order[rank];
+      const reason = place(bins[i], bags[i], item, cfg, rule);
+      if (reason === null) { penalty += rank; placed = true; } else reasons.push(reason);
+    }
+    if (!placed) unpacked.push({ item, reason: combinedReason(reasons, cabinOnly, bags.length) });
+  }
+  const results = bags.map((bag, i) => ({ suitcase: bag, placements: bins[i].placements, unpacked: [], strategy, attempts: 1 }));
+  return { bags, results, placements: results.flatMap((r) => r.placements), unpacked, strategy, attempts: 1, penalty };
 }
 
 function support(c, boxes, placements, cfg) {
@@ -327,9 +425,34 @@ function mutate(order, rnd) {
   return out;
 }
 
-const isPerfect = (r) => !r.unpacked.length && r.placements.reduce((a, p) => a + volume(p.item), 0) >= r.suitcase.length * r.suitcase.width * r.suitcase.height - EPS;
+const packedVolume = (placements) => placements.reduce((a, p) => a + volume(p.item), 0);
+const caseVolume = (s) => s.length * s.width * s.height;
 
-function search(suitcase, items, cfg, rnd, deadline, onProgress) {
+/** What the search needs to know about one bag... */
+function singlePacker(suitcase, cfg) {
+  return {
+    pack: (order, rule, name) => greedyPack(suitcase, order, cfg, rule, name),
+    score,
+    isPerfect: (r) => !r.unpacked.length && packedVolume(r.placements) >= caseVolume(suitcase) - EPS,
+  };
+}
+
+/** ...or several bags packed together. */
+function bagsPacker(bags, cfg) {
+  const prefs = new Map(); // squeezed copies keep the id, and the answer
+  const prefOf = (item) => {
+    if (!prefs.has(item.id)) prefs.set(item.id, bagPreferences(item, bags));
+    return prefs.get(item.id);
+  };
+  const capacity = bags.reduce((s, b) => s + caseVolume(b), 0);
+  return {
+    pack: (order, rule, name) => multiPack(bags, order, cfg, rule, name, prefOf),
+    score: multiScore,
+    isPerfect: (m) => !m.unpacked.length && packedVolume(m.placements) >= capacity - EPS,
+  };
+}
+
+function search(packer, items, cfg, rnd, deadline, onProgress) {
   let best = null, bestOrder = items, bestRule = cfg.rules[0], bestScore = null, bestForce = true;
   let attempts = 0, stale = 0;
   const hasPriority = items.some((i) => i.priority);
@@ -338,8 +461,8 @@ function search(suitcase, items, cfg, rnd, deadline, onProgress) {
   const consider = (order, name, rule, force = true) => {
     if (force) order = priorityLast(order);
     attempts++;
-    const r = greedyPack(suitcase, order, cfg, rule, `${name}, ${rule}`);
-    const sc = score(r);
+    const r = packer.pack(order, rule, `${name}, ${rule}`);
+    const sc = packer.score(r);
     if (best && cmp(sc, bestScore) < 0) { stale++; return; }
     const improved = !best || cmp(sc, bestScore) > 0;
     stale = improved ? 0 : stale + 1;
@@ -353,7 +476,7 @@ function search(suitcase, items, cfg, rnd, deadline, onProgress) {
     }
   }
   for (let i = 0; ; i++) {
-    if ((deadline && performance.now() > deadline) || isPerfect(best)) break;
+    if ((deadline && performance.now() > deadline) || packer.isPerfect(best)) break;
     // `restarts` is the normal budget; while items are still left over and
     // there is time on the clock, keep looking (up to 10x as long).
     if (i >= cfg.restarts && (!deadline || !best.unpacked.length || i >= cfg.restarts * 10)) break;
@@ -377,20 +500,32 @@ function search(suitcase, items, cfg, rnd, deadline, onProgress) {
 
 export function optimize(suitcase, items, config = {}, onProgress) {
   const cfg = { ...DEFAULT_CONFIG, ...config };
+  return run(singlePacker(suitcase, cfg), items, cfg, onProgress);
+}
+
+/** Split `items` across `bags` (each with a unique `id` and a `kind`). */
+export function optimizeBags(bags, items, config = {}, onProgress) {
+  if (!bags.length) throw new Error('Need at least one bag.');
+  if (new Set(bags.map((b) => b.id)).size !== bags.length) throw new Error('Every bag needs its own id.');
+  const cfg = { ...DEFAULT_CONFIG, ...config };
+  return run(bagsPacker(bags, cfg), items, cfg, onProgress);
+}
+
+function run(packer, items, cfg, onProgress) {
   const rnd = mulberry32(cfg.seed ?? 42);
   const start = performance.now();
   const limitMs = cfg.time_limit_s == null ? null : cfg.time_limit_s * 1000;
   const deadline = limitMs == null ? null : start + limitMs;
   const canSqueeze = cfg.allow_squeeze && items.some((i) => i.squeeze > 0);
   const firstDeadline = deadline == null || !canSqueeze ? deadline : start + limitMs * 0.5;
-  let best = search(suitcase, items, cfg, rnd, firstDeadline, onProgress);
+  let best = search(packer, items, cfg, rnd, firstDeadline, onProgress);
   let attempts = best.attempts;
   if (best.unpacked.length && canSqueeze) {
     const levels = [0.5, 1];
     for (let n = 0; n < levels.length; n++) {
       const now = performance.now();
       const dl = deadline == null ? null : now + (deadline - now) / (levels.length - n);
-      const r = search(suitcase, items.map((i) => squeezed(i, levels[n])), cfg, rnd, dl, onProgress);
+      const r = search(packer, items.map((i) => squeezed(i, levels[n])), cfg, rnd, dl, onProgress);
       attempts += r.attempts;
       if (cmp(r.score, best.score) > 0) {
         r.strategy += `, soft items squeezed ${levels[n] < 1 ? 'half' : 'fully'}`;
@@ -448,13 +583,13 @@ function rotationEulerDeg(perm) {
 
 const g = (v) => String(+v.toFixed(3));
 
-export function layoutDict(r) {
+/** One entry per placed item (mirrors visualizer.placement_steps). `where` names the bag. */
+function stepsFor(r, names, where = 'case') {
   const s = r.suitcase;
-  const names = Object.fromEntries(r.placements.map((p) => [p.item.id, p.item.name]));
   const buried = new Set(buriedPriority(r.placements));
-  const steps = r.placements.map((p) => {
-    const sup = p.supported_by.length ? `on top of ${p.supported_by.map((i) => names[i]).join(', ')}` : 'on the bottom of the case';
-    let instruction = `Place ${p.item.name} ${orientationLabel(p)} in the ${regionLabel(p, s)} of the case, ${sup}.`;
+  return r.placements.map((p) => {
+    const sup = p.supported_by.length ? `on top of ${p.supported_by.map((i) => names[i]).join(', ')}` : `on the bottom of the ${where}`;
+    let instruction = `Place ${p.item.name} ${orientationLabel(p)} in the ${regionLabel(p, s)} of the ${where}, ${sup}.`;
     const sq = squeezedFraction(p.item);
     if (sq > 0.001) instruction += ` Press it down to about ${g(Math.min(...dims(p.item)))} cm thick.`;
     if (p.item.priority && !buried.has(p)) instruction += " It's on top, so you can grab it without unpacking.";
@@ -475,33 +610,87 @@ export function layoutDict(r) {
       instruction,
     };
   });
+}
+
+const UNITS = { length: 'cm', weight: 'kg' };
+const AXES = { x: 'length (left->right)', y: 'width (front->back)', z: 'height (up)' };
+const unpackedList = (r) => r.unpacked.map((u) => ({ id: u.item.id, name: u.item.name, size: dims(u.item), reason: u.reason }));
+
+export function layoutDict(r) {
+  const s = r.suitcase;
+  const names = Object.fromEntries(r.placements.map((p) => [p.item.id, p.item.name]));
   return {
-    units: { length: 'cm', weight: 'kg' },
-    axes: { x: 'length (left->right)', y: 'width (front->back)', z: 'height (up)' },
+    units: UNITS,
+    axes: AXES,
     suitcase: { name: s.name, length: s.length, width: s.width, height: s.height, max_weight: s.max_weight ?? null },
     metrics: metrics(r),
-    steps,
-    unpacked: r.unpacked.map((u) => ({ id: u.item.id, name: u.item.name, size: dims(u.item), reason: u.reason })),
+    steps: stepsFor(r, names),
+    unpacked: unpackedList(r),
   };
+}
+
+/** Layout of several bags (mirrors visualizer.bags_layout_dict). Steps run bag
+ * by bag: `bag` indexes `bags`, `step` counts across all bags, `bag_step` within one. */
+export function bagsLayoutDict(m) {
+  const names = Object.fromEntries(m.placements.map((p) => [p.item.id, p.item.name]));
+  const bags = [], steps = [];
+  m.results.forEach((r, i) => {
+    const bag = m.bags[i];
+    stepsFor(r, names, bag.name).forEach((st, k) => {
+      const p = r.placements[k];
+      const warning = p.item.cabin === 'required' && !inCabin(bag);
+      if (warning) st.instruction += ' Batteries like this must travel in the cabin: carry it on board.';
+      Object.assign(st, {
+        bag: i, bag_step: st.step, step: steps.length + 1, cabin: p.item.cabin, cabin_warning: warning, pinned: p.item.bag != null,
+      });
+      steps.push(st);
+    });
+    const bm = metrics(r);
+    for (const k of ['strategy', 'attempts', 'items_unpacked']) delete bm[k];
+    bags.push({
+      id: bag.id, name: bag.name, kind: bag.kind, length: bag.length, width: bag.width, height: bag.height,
+      max_weight: bag.max_weight ?? null, metrics: bm,
+    });
+  });
+  return { units: UNITS, axes: AXES, bags, metrics: multiMetrics(m), steps, unpacked: unpackedList(m) };
 }
 
 // --------------------------------------------------------------------------- //
 // API-compatible entry point (mirrors app.pack_request)
 // --------------------------------------------------------------------------- //
-export function packRequest(catalog, request, onProgress) {
-  const sc = request.suitcase || {};
-  const suitcase = {
-    name: sc.name || 'Suitcase', length: +sc.length, width: +sc.width, height: +sc.height,
-    max_weight: sc.max_weight ? +sc.max_weight : null,
+function parseBag(b, label) {
+  const bag = {
+    name: b.name || 'Suitcase', length: +b.length, width: +b.width, height: +b.height,
+    max_weight: b.max_weight ? +b.max_weight : null,
   };
-  for (const k of ['length', 'width', 'height']) if (!(suitcase[k] > 0)) throw new Error(`Suitcase ${k} must be positive`);
+  for (const k of ['length', 'width', 'height']) if (!(bag[k] > 0)) throw new Error(`${label} ${k} must be positive`);
+  return bag;
+}
+
+export function packRequest(catalog, request, onProgress) {
+  let suitcase = null, bags = null;
+  if (request.bags) {
+    if (!request.bags.length) throw new Error('Need at least one bag.');
+    if (request.bags.length > 4) throw new Error('At most 4 bags.');
+    bags = request.bags.map((b, n) => {
+      const kind = b.kind || 'checked';
+      if (!(kind in KIND_RANK)) throw new Error(`Bag kind must be checked, cabin or personal, got '${kind}'`);
+      return { ...parseBag(b, 'Bag'), kind, id: String(b.id || `bag${n + 1}`) };
+    });
+  } else {
+    suitcase = parseBag(request.suitcase || {}, 'Suitcase');
+  }
   const byId = Object.fromEntries(catalog.items.map((e) => [e.id, e]));
   const entries = [];
   for (const sel of request.items || []) {
     const entry = byId[sel.id];
     if (!entry) throw new Error(`Unknown catalog item '${sel.id}'`);
     const qty = parseInt(sel.quantity ?? 1, 10);
-    if (qty > 0) entries.push({ ...entry, quantity: qty, ...(sel.priority != null ? { priority: !!sel.priority } : {}) });
+    if (qty > 0) {
+      entries.push({
+        ...entry, quantity: qty, ...(sel.priority != null ? { priority: !!sel.priority } : {}), ...(sel.bag ? { bag: sel.bag } : {}),
+      });
+    }
   }
   (request.custom_items || []).forEach((c, i) => {
     let id = String(c.id || `custom${i + 1}`);
@@ -519,7 +708,9 @@ export function packRequest(catalog, request, onProgress) {
     allow_squeeze: o.allow_squeeze ?? true,
   };
   const t0 = performance.now();
-  const layout = layoutDict(optimize(suitcase, items, cfg, onProgress));
+  const layout = bags
+    ? bagsLayoutDict(optimizeBags(bags, items, cfg, onProgress))
+    : layoutDict(optimize(suitcase, items, cfg, onProgress));
   layout.elapsed_s = round((performance.now() - t0) / 1000, 2);
 
   // enrich with model info, like catalog.enrich_layout

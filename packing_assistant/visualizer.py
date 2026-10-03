@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Optional
 
 from .models import Perm, Placement
-from .optimizer import PackingResult
+from .optimizer import MultiPackingResult, PackingResult
 
 CATEGORY_COLORS = {
     "clothing": (0.24, 0.44, 0.54),
@@ -63,9 +63,9 @@ def region_label(p: Placement, suitcase) -> str:
     return "centre" if (depth, side) == ("middle", "centre") else f"{depth}-{side}"
 
 
-def support_label(p: Placement, names: dict[str, str]) -> str:
+def support_label(p: Placement, names: dict[str, str], where: str = "case") -> str:
     if not p.supported_by:
-        return "on the bottom of the case"
+        return f"on the bottom of the {where}"
     return "on top of " + ", ".join(names[i] for i in p.supported_by)
 
 
@@ -99,14 +99,16 @@ def rotation_euler_deg(perm: Perm) -> tuple[int, int, int]:
 # --------------------------------------------------------------------------- #
 # Placement log
 # --------------------------------------------------------------------------- #
-def placement_steps(result: PackingResult) -> list[dict]:
-    names = {p.item.id: p.item.name for p in result.placements}
+def placement_steps(result: PackingResult, names: Optional[dict[str, str]] = None,
+                    where: str = "case") -> list[dict]:
+    """One dict per placed item. ``where`` names the bag in the instructions."""
+    names = names or {p.item.id: p.item.name for p in result.placements}
     buried = {id(p) for p in result.buried_priority()}
     steps = []
     for p in result.placements:
         instruction = (
             f"Place {p.item.name} {orientation_label(p)} in the "
-            f"{region_label(p, result.suitcase)} of the case, {support_label(p, names)}."
+            f"{region_label(p, result.suitcase)} of the {where}, {support_label(p, names, where)}."
         )
         squeezed = p.item.squeezed_fraction
         if squeezed > 0.001:
@@ -162,10 +164,41 @@ def layout_dict(result: PackingResult) -> dict:
     }
 
 
-def export_layout_json(result: PackingResult, path: str | Path) -> Path:
+def bags_layout_dict(result: MultiPackingResult) -> dict:
+    """Layout of several bags. ``steps`` run bag by bag (``bag`` is the index
+    into ``bags``; ``step`` counts across all bags, ``bag_step`` within one)."""
+    names = {p.item.id: p.item.name for p in result.placements}
+    bags, steps = [], []
+    for i, (bag, r) in enumerate(zip(result.bags, result.results)):
+        for st, p in zip(placement_steps(r, names, where=bag.name), r.placements):
+            if p.item.cabin == "required" and not bag.in_cabin:
+                st["instruction"] += " Batteries like this must travel in the cabin: carry it on board."
+            st.update(bag=i, bag_step=st["step"], step=len(steps) + 1, cabin=p.item.cabin,
+                      cabin_warning=p.item.cabin == "required" and not bag.in_cabin, pinned=p.item.bag is not None)
+            steps.append(st)
+        m = r.metrics()
+        for k in ("strategy", "attempts", "items_unpacked"):
+            m.pop(k)
+        bags.append({"id": bag.id, "name": bag.name, "kind": bag.kind, "length": bag.length,
+                     "width": bag.width, "height": bag.height, "max_weight": bag.max_weight, "metrics": m})
+    return {
+        "units": {"length": "cm", "weight": "kg"},
+        "axes": {"x": "length (left->right)", "y": "width (front->back)", "z": "height (up)"},
+        "bags": bags,
+        "metrics": result.metrics(),
+        "steps": steps,
+        "unpacked": [
+            {"id": u.item.id, "name": u.item.name, "size": list(u.item.dims), "reason": u.reason}
+            for u in result.unpacked
+        ],
+    }
+
+
+def export_layout_json(result: PackingResult | MultiPackingResult, path: str | Path) -> Path:
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(layout_dict(result), indent=2), encoding="utf-8")
+    data = bags_layout_dict(result) if isinstance(result, MultiPackingResult) else layout_dict(result)
+    path.write_text(json.dumps(data, indent=2), encoding="utf-8")
     return path
 
 
@@ -205,6 +238,48 @@ def format_text_log(result: PackingResult) -> str:
             f"    at x={x:g}, y={y:g}, z={z:g} cm, occupying {_dims(st['size'])} cm"
             + ("  [rotated]" if st["rotated"] else "")
         )
+    if result.unpacked:
+        out.append("")
+        out.append("DID NOT FIT")
+        for u in result.unpacked:
+            out.append(f" - {u.item.name} ({_dims(u.item.dims)} cm): {u.reason}")
+    return "\n".join(out)
+
+
+def format_bags_metrics(result: MultiPackingResult) -> str:
+    m = result.metrics()
+    lines = [
+        f"Bags:                {len(result.bags)} ({m['bags_used']} used)",
+        f"Items packed:        {m['items_packed']} / {m['items_total']}",
+        f"Volume efficiency:   {m['volume_efficiency_pct']:.1f}% of all bags together",
+    ]
+    for bag, r in zip(result.bags, result.results):
+        bm = r.metrics()
+        limit = f" / {bag.max_weight:g}" if bag.max_weight is not None else ""
+        lines.append(f"  {bag.name} ({bag.kind}, {_dims(bag.dims)} cm): {bm['items_packed']} items, "
+                     f"{bm['volume_efficiency_pct']:.1f}% full, {bm['packed_weight_kg']:g}{limit} kg")
+    if m["squeezed_items"]:
+        lines.append(f"Squeezed:            {m['squeezed_items']} soft item(s) pressed flatter to make room")
+    if m["priority_items"]:
+        lines.append(f"Need-it-first:       {m['priority_items']} item(s), {m['priority_buried']} with something on top")
+    lines.append(f"Best strategy:       {m['strategy']} ({m['attempts']} layouts tried)")
+    return "\n".join(lines)
+
+
+def format_bags_text_log(result: MultiPackingResult) -> str:
+    layout = bags_layout_dict(result)
+    out = ["PACKING STEPS", "============="]
+    for i, bag in enumerate(layout["bags"]):
+        steps = [st for st in layout["steps"] if st["bag"] == i]
+        if not steps:
+            continue
+        out.append("")
+        out.append(f"{bag['name']} ({bag['kind']})")
+        for st in steps:
+            x, y, z = st["position"]
+            out.append(f"{st['step']:>2}. {st['instruction']}")
+            out.append(f"    at x={x:g}, y={y:g}, z={z:g} cm, occupying {_dims(st['size'])} cm"
+                       + ("  [rotated]" if st["rotated"] else ""))
     if result.unpacked:
         out.append("")
         out.append("DID NOT FIT")

@@ -19,6 +19,9 @@ Approach
 5. **Squeezing**: if not everything fits, soft items (folded clothes, rolls)
    are squashed a little (``squeeze``: how much their thickness can shrink)
    and the search runs again: first by half their allowance, then fully.
+6. **Several bags** (``pack_bags``): each item goes into the first bag on its
+   preference list with room for it (see ``bag_preferences``). The same
+   search then optimises the whole trip at once, not one bag after another.
 
 The engine is pure Python, with no external dependencies.
 """
@@ -127,17 +130,115 @@ class PackingResult:
         """Higher is better: how much stuff is packed (at natural size), then item
         count, then fewer buried need-it-first items, less squeezing, and a low
         centre of gravity."""
-        cog = self.center_of_gravity()
-        cog_height = cog[2] / self.suitcase.height if cog else 0.0
-        fill = max((p.box.hi(2) for p in self.placements), default=0.0)
         squeezed = sum(p.item.natural_volume - p.item.volume for p in self.placements)
         return (round(self.packed_natural_volume, 6), len(self.placements), -len(self.buried_priority()),
-                -round(squeezed, 3), -round(cog_height, 6), -fill)
+                -round(squeezed, 3), -round(self.cog_height(), 6), -self.fill_height())
+
+    def cog_height(self) -> float:
+        """Height of the centre of gravity as a share of the case height."""
+        cog = self.center_of_gravity()
+        return cog[2] / self.suitcase.height if cog else 0.0
+
+    def fill_height(self) -> float:
+        return max((p.box.hi(2) for p in self.placements), default=0.0)
+
+    def is_perfect(self) -> bool:
+        return not self.unpacked and self.packed_volume >= self.suitcase.volume - EPS
+
+
+@dataclass
+class MultiPackingResult:
+    """Several bags packed together. ``results`` has one entry per bag (in the
+    order given); ``unpacked`` lists what fitted in none of them."""
+
+    bags: list[Suitcase]
+    results: list[PackingResult]
+    unpacked: list[UnpackedItem]
+    strategy: str = ""
+    attempts: int = 1
+    penalty: int = 0  # how far down their bag preference list items ended up (summed)
+
+    @property
+    def placements(self) -> list[Placement]:
+        return [p for r in self.results for p in r.placements]
+
+    @property
+    def packed_volume(self) -> float:
+        return sum(r.packed_volume for r in self.results)
+
+    @property
+    def packed_natural_volume(self) -> float:
+        return sum(r.packed_natural_volume for r in self.results)
+
+    @property
+    def packed_weight(self) -> float:
+        return sum(r.packed_weight for r in self.results)
+
+    @property
+    def capacity(self) -> float:
+        return sum(b.volume for b in self.bags)
+
+    def buried_priority(self) -> list[Placement]:
+        return [p for r in self.results for p in r.buried_priority()]
+
+    def score(self) -> tuple:
+        """Like PackingResult.score, plus (after keeping need-it-first items on
+        top): items in the bag that suits them best."""
+        squeezed = sum(p.item.natural_volume - p.item.volume for p in self.placements)
+        return (round(self.packed_natural_volume, 6), len(self.placements), -len(self.buried_priority()),
+                -self.penalty, -round(squeezed, 3),
+                -round(sum(r.cog_height() for r in self.results), 6),
+                -sum(r.fill_height() for r in self.results))
+
+    def is_perfect(self) -> bool:
+        return not self.unpacked and self.packed_volume >= self.capacity - EPS
+
+    def metrics(self) -> dict:
+        """Totals over all bags, with the same keys as PackingResult.metrics."""
+        used, cap = self.packed_volume, self.capacity
+        limits = [b.max_weight for b in self.bags]
+        placements = self.placements
+        return {
+            "suitcase_volume_cm3": round(cap, 1),
+            "packed_volume_cm3": round(used, 1),
+            "unused_volume_cm3": round(cap - used, 1),
+            "volume_efficiency_pct": round(100 * used / cap, 2),
+            "unused_volume_pct": round(100 * (1 - used / cap), 2),
+            "items_packed": len(placements),
+            "items_total": len(placements) + len(self.unpacked),
+            "items_unpacked": [u.item.name for u in self.unpacked],
+            "packed_weight_kg": round(self.packed_weight, 2),
+            "weight_limit_kg": None if any(w is None for w in limits) else round(sum(limits), 2),
+            "squeezed_items": sum(1 for p in placements if p.item.squeezed_fraction > 0.001),
+            "priority_items": sum(1 for p in placements if p.item.priority),
+            "priority_buried": len(self.buried_priority()),
+            "bags_used": sum(1 for r in self.results if r.placements),
+            "strategy": self.strategy,
+            "attempts": self.attempts,
+        }
 
 
 # --------------------------------------------------------------------------- #
 # Single greedy pass
 # --------------------------------------------------------------------------- #
+REASON_WEIGHT = "would exceed the weight limit"
+REASON_TOO_BIG = "larger than the suitcase in every orientation"
+REASON_NO_SPACE = "no free space with enough support"
+REASON_TOO_BIG_ALL = "larger than every bag in every orientation"
+REASON_CABIN_FULL = "must travel in the cabin, but no cabin bag has room"
+
+
+class _Bin:
+    """What is in one bag so far during a greedy pass."""
+
+    __slots__ = ("placements", "points", "weight")
+
+    def __init__(self) -> None:
+        self.placements: list[Placement] = []
+        self.points: list[Point] = [(0.0, 0.0, 0.0)]
+        self.weight = 0.0
+
+
 class ExtremePointPacker:
     """Packs items one at a time, in the order given, using extreme points."""
 
@@ -147,37 +248,41 @@ class ExtremePointPacker:
 
     def pack(self, items: list[Item], strategy: str = "given order",
              rule: str = "max-contact") -> PackingResult:
+        self.set_rule(rule)
+        b = _Bin()
+        unpacked: list[UnpackedItem] = []
+        for item in items:
+            reason = self.place(b, item)
+            if reason:
+                unpacked.append(UnpackedItem(item, reason))
+        return PackingResult(self.suitcase, b.placements, unpacked, strategy)
+
+    def set_rule(self, rule: str) -> None:
         if rule not in PLACEMENT_RULES:
             raise ValueError(f"Unknown placement rule '{rule}'. Choose from {list(PLACEMENT_RULES)}")
         self._rule = rule
-        dims = self.suitcase.dims
-        placements: list[Placement] = []
-        unpacked: list[UnpackedItem] = []
-        points: list[Point] = [(0.0, 0.0, 0.0)]
-        weight = 0.0
+
+    def place(self, b: _Bin, item: Item) -> Optional[str]:
+        """Put ``item`` in the best free spot of ``b``. Returns None if it was
+        placed, otherwise why it didn't fit."""
         limit = self.suitcase.max_weight
+        if limit is not None and b.weight + item.weight > limit + EPS:
+            return REASON_WEIGHT
+        dims = sorted(self.suitcase.dims)
+        if not any(all(s <= d + EPS for s, d in zip(sorted(item.size_in(p)), dims))
+                   for p in item.orientations()):
+            return REASON_TOO_BIG
 
-        for item in items:
-            if limit is not None and weight + item.weight > limit + EPS:
-                unpacked.append(UnpackedItem(item, "would exceed the weight limit"))
-                continue
-            if not any(all(s <= d + EPS for s, d in zip(sorted(item.size_in(p)), sorted(dims)))
-                       for p in item.orientations()):
-                unpacked.append(UnpackedItem(item, "larger than the suitcase in every orientation"))
-                continue
+        best = self._best_position(item, b.points, b.placements)
+        if best is None:
+            return REASON_NO_SPACE
 
-            best = self._best_position(item, points, placements)
-            if best is None:
-                unpacked.append(UnpackedItem(item, "no free space with enough support"))
-                continue
-
-            (x, y, z), perm, supporters = best
-            placement = Placement(item, x, y, z, perm, step=len(placements) + 1, supported_by=supporters)
-            placements.append(placement)
-            weight += item.weight
-            points = self._update_points(points, placement.box, placements)
-
-        return PackingResult(self.suitcase, placements, unpacked, strategy)
+        (x, y, z), perm, supporters = best
+        placement = Placement(item, x, y, z, perm, step=len(b.placements) + 1, supported_by=supporters)
+        b.placements.append(placement)
+        b.weight += item.weight
+        b.points = self._update_points(b.points, placement.box, b.placements)
+        return None
 
     # -- candidate evaluation ------------------------------------------------ #
     # The inner loop runs hundreds of thousands of times for large lists, so it
@@ -314,6 +419,88 @@ PLACEMENT_RULES = {
 
 
 # --------------------------------------------------------------------------- #
+# Several bags
+# --------------------------------------------------------------------------- #
+# Smaller = closer to you on the plane.
+KIND_RANK = {"personal": 0, "cabin": 1, "checked": 2}
+
+
+def bag_preferences(item: Item, bags: list[Suitcase]) -> tuple[list[int], bool]:
+    """The bags (indexes) ``item`` may go in, best first, and whether it is
+    restricted to cabin bags.
+
+    - put in a bag by the user: only that bag
+    - ``cabin="required"`` (lithium batteries): cabin bags only, under-seat first
+    - valuables and need-it-first items: under-seat bag, then cabin, then hold
+    - everything else: the hold first, so the bags you carry stay light
+    Bags of the same kind keep the order they were given in.
+    """
+    idx = range(len(bags))
+    if item.bag is not None:
+        pinned = [i for i in idx if bags[i].id == item.bag]
+        if pinned:
+            return pinned, False
+    toward_you = sorted(idx, key=lambda i: (KIND_RANK[bags[i].kind], i))
+    if item.cabin == "required":
+        cabin = [i for i in toward_you if bags[i].in_cabin]
+        # No cabin bag at all: pack it anyway; the steps flag it.
+        return (cabin, True) if cabin else (toward_you, False)
+    if item.cabin == "preferred" or item.priority:
+        return toward_you, False
+    return sorted(idx, key=lambda i: (-KIND_RANK[bags[i].kind], i)), False
+
+
+class MultiBagPacker:
+    """Greedy pass over several bags: each item goes into the first bag on its
+    preference list that has room for it."""
+
+    def __init__(self, bags: list[Suitcase], config: Optional[PackerConfig] = None):
+        if not bags:
+            raise ValueError("Need at least one bag.")
+        if len({b.id for b in bags}) != len(bags):
+            raise ValueError("Every bag needs its own id.")
+        self.bags = bags
+        self.packers = [ExtremePointPacker(b, config) for b in bags]
+        self._prefs: dict[str, tuple[list[int], bool]] = {}
+
+    def preferences(self, item: Item) -> tuple[list[int], bool]:
+        if item.id not in self._prefs:  # squeezed copies keep the id, and the answer
+            self._prefs[item.id] = bag_preferences(item, self.bags)
+        return self._prefs[item.id]
+
+    def pack(self, items: list[Item], strategy: str = "given order",
+             rule: str = "max-contact") -> MultiPackingResult:
+        for p in self.packers:
+            p.set_rule(rule)
+        bins = [_Bin() for _ in self.bags]
+        unpacked: list[UnpackedItem] = []
+        penalty = 0
+        for item in items:
+            order, cabin_only = self.preferences(item)
+            reasons = []
+            for rank, i in enumerate(order):
+                reason = self.packers[i].place(bins[i], item)
+                if reason is None:
+                    penalty += rank
+                    break
+                reasons.append(reason)
+            else:
+                unpacked.append(UnpackedItem(item, _combined_reason(reasons, cabin_only, len(self.bags))))
+        results = [PackingResult(bag, b.placements, [], strategy) for bag, b in zip(self.bags, bins)]
+        return MultiPackingResult(self.bags, results, unpacked, strategy, penalty=penalty)
+
+
+def _combined_reason(reasons: list[str], cabin_only: bool, n_bags: int) -> str:
+    if cabin_only:
+        return REASON_CABIN_FULL
+    if len(set(reasons)) == 1:
+        if reasons[0] == REASON_TOO_BIG and n_bags > 1:
+            return REASON_TOO_BIG_ALL
+        return reasons[0]
+    return REASON_NO_SPACE
+
+
+# --------------------------------------------------------------------------- #
 # Multi-start optimizer
 # --------------------------------------------------------------------------- #
 SortKey = Callable[[Item], tuple]
@@ -335,8 +522,15 @@ class PackingOptimizer:
         self.config = config or PackerConfig()
 
     def optimize(self, suitcase: Suitcase, items: list[Item]) -> PackingResult:
+        return self._optimize(ExtremePointPacker(suitcase, self.config), items)
+
+    def optimize_bags(self, bags: list[Suitcase], items: list[Item]) -> MultiPackingResult:
+        return self._optimize(MultiBagPacker(bags, self.config), items)
+
+    def _optimize(self, packer, items: list[Item]):
+        """``packer`` is an ExtremePointPacker or a MultiBagPacker; both return
+        results with ``score()``, ``unpacked`` and ``is_perfect()``."""
         cfg = self.config
-        packer = ExtremePointPacker(suitcase, cfg)
         rng = random.Random(cfg.seed)
         started = time.perf_counter()
         limit = cfg.time_limit_s
@@ -366,10 +560,9 @@ class PackingOptimizer:
         best.attempts = attempts
         return best
 
-    def _search(self, packer: "ExtremePointPacker", items: list[Item], rng: random.Random,
-                deadline: Optional[float]) -> PackingResult:
+    def _search(self, packer, items: list[Item], rng: random.Random, deadline: Optional[float]):
         cfg = self.config
-        best: Optional[PackingResult] = None
+        best = None
         best_order: list[Item] = list(items)
         best_rule = cfg.rules[0]
         best_force = True
@@ -414,7 +607,7 @@ class PackingOptimizer:
         i = -1
         while True:
             i += 1
-            if out_of_time() or (best is not None and _is_perfect(best)):
+            if out_of_time() or (best is not None and best.is_perfect()):
                 break
             # `restarts` is the normal budget; while items are still left over
             # and there is time on the clock, keep looking (up to 10x as long).
@@ -446,10 +639,6 @@ def _priority_last(order: list[Item]) -> list[Item]:
     return [i for i in order if not i.priority] + [i for i in order if i.priority]
 
 
-def _is_perfect(result: PackingResult) -> bool:
-    return not result.unpacked and result.packed_volume >= result.suitcase.volume - EPS
-
-
 def _mutate(order: list[Item], rng: random.Random) -> list[Item]:
     """Small random change to a packing order: swap two items or move one."""
     out = list(order)
@@ -468,3 +657,10 @@ def _mutate(order: list[Item], rng: random.Random) -> list[Item]:
 def pack(suitcase: Suitcase, items: list[Item], config: Optional[PackerConfig] = None) -> PackingResult:
     """Convenience wrapper: optimise and return the best layout found."""
     return PackingOptimizer(config).optimize(suitcase, items)
+
+
+def pack_bags(bags: list[Suitcase], items: list[Item],
+              config: Optional[PackerConfig] = None) -> MultiPackingResult:
+    """Split ``items`` across ``bags`` (each with a unique ``id`` and a ``kind``)
+    and pack each one."""
+    return PackingOptimizer(config).optimize_bags(bags, items)
