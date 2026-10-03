@@ -5,6 +5,8 @@
 //
 // Coordinates: x = length (left to right), y = width (front to back),
 // z = height (up). Centimetres and kilograms. Origin = front-left-bottom.
+// The open case lies on its back (z = 0 is the back panel) with its wheels
+// at the left end (x = 0).
 
 const EPS = 1e-6;
 
@@ -104,14 +106,62 @@ function centerOfGravity(placements) {
   return [0, 1, 2].map((a) => placements.reduce((s, p) => s + (boxOf(p)[a] + p.size[a] / 2) * p.item.weight, 0) / total);
 }
 
-const cogHeight = (r) => { const cog = centerOfGravity(r.placements); return cog ? cog[2] / r.suitcase.height : 0; };
+// -- weight balance (mirrors PackingResult.balance in optimizer.py) --
+const LIGHT_BAG_KG = 2.0; // lighter bags are rated well balanced whatever their layout
+const hasWheels = (s) => (s.wheels != null ? !!s.wheels : (s.kind || 'checked') !== 'personal');
+const packedWeight = (placements) => placements.reduce((a, p) => a + p.item.weight, 0);
+
+/** Centre of gravity as shares of the case: along (0 = wheel end), depth
+ * (0 = back panel), side (0 = centred across the width). */
+function balanceParts(r) {
+  const cog = centerOfGravity(r.placements);
+  if (!cog) return null;
+  const s = r.suitcase;
+  return [cog[0] / s.length, cog[2] / s.height, Math.abs(cog[1] / s.width - 0.5) * 2];
+}
+
+/** Smaller is better. The final layout is turned end to end if that puts the
+ * weight nearer the wheels (wheelsDown), so either end counts as the wheel end;
+ * along counts double, as weight at the handle end is what tips a case over. */
+function balancePenalty(r) {
+  const parts = balanceParts(r);
+  if (!parts) return 0;
+  const [along, depth, side] = parts;
+  return (hasWheels(r.suitcase) ? 2 * Math.min(along, 1 - along) : 0) + depth + 0.5 * side;
+}
+
+export function balance(r) {
+  const parts = balanceParts(r);
+  if (!parts) return null;
+  const [along, depth, side] = parts;
+  const wheels = hasWheels(r.suitcase);
+  const light = packedWeight(r.placements) < LIGHT_BAG_KG;
+  const issue = light ? null : side > 0.5 ? 'lopsided' : wheels && along > 0.55 ? 'top-heavy' : null;
+  const rating = light ? 'good' : issue ? 'poor' : side <= 0.3 && (wheels ? along <= 0.45 : depth <= 0.5) ? 'good' : 'ok';
+  return { wheels, along: round(along, 3), depth: round(depth, 3), side: round(side, 3), rating, issue, light };
+}
+
+/** Mirror a bag's layout end to end if its weight sits nearer the handle end
+ * (just as valid: same supports, same fit). */
+function wheelsDown(r) {
+  const parts = balanceParts(r);
+  if (!hasWheels(r.suitcase) || !parts || parts[0] <= 0.5) return;
+  for (const p of r.placements) p.x = round(r.suitcase.length - p.x - p.size[0], 9);
+}
+
 const fillHeight = (r) => Math.max(0, ...r.placements.map((p) => p.z + p.size[2]));
 const naturalPacked = (placements) => placements.reduce((s, p) => s + naturalVolume(p.item), 0);
 const squeezedVolume = (placements) => placements.reduce((s, p) => s + naturalVolume(p.item) - volume(p.item), 0);
 
 function score(r) {
   return [round(naturalPacked(r.placements), 6), r.placements.length, -buriedPriority(r.placements).length,
-    -round(squeezedVolume(r.placements), 3), -round(cogHeight(r), 6), -fillHeight(r)];
+    -round(squeezedVolume(r.placements), 3), -round(balancePenalty(r), 6), -fillHeight(r)];
+}
+
+/** Each bag's balance penalty, weighted by how heavy the bag is. */
+function multiBalancePenalty(m) {
+  const total = packedWeight(m.placements);
+  return total > 0 ? m.results.reduce((s, r) => s + balancePenalty(r) * packedWeight(r.placements), 0) / total : 0;
 }
 
 // Several bags (mirrors MultiPackingResult.score): after keeping need-it-first
@@ -119,7 +169,7 @@ function score(r) {
 function multiScore(m) {
   const all = m.placements;
   return [round(naturalPacked(all), 6), all.length, -m.results.reduce((s, r) => s + buriedPriority(r.placements).length, 0),
-    -m.penalty, -round(squeezedVolume(all), 3), -round(m.results.reduce((s, r) => s + cogHeight(r), 0), 6),
+    -m.penalty, -round(squeezedVolume(all), 3), -round(multiBalancePenalty(m), 6),
     -m.results.reduce((s, r) => s + fillHeight(r), 0)];
 }
 
@@ -151,6 +201,7 @@ export function metrics(r) {
     packed_weight_kg: round(weight, 2),
     weight_limit_kg: s.max_weight ?? null,
     center_of_gravity_cm: cog ? cog.map((c) => round(c, 1)) : null,
+    balance: balance(r),
     squeezed_items: r.placements.filter((p) => squeezedFraction(p.item) > 0.001).length,
     priority_items: r.placements.filter((p) => p.item.priority).length,
     priority_buried: buriedPriority(r.placements).length,
@@ -188,7 +239,7 @@ function multiMetrics(m) {
 // --------------------------------------------------------------------------- //
 // Single greedy pass (extreme points)
 // --------------------------------------------------------------------------- //
-export const RULES = ['max-contact', 'bottom-up', 'back-to-front'];
+export const RULES = ['max-contact', 'bottom-up', 'back-to-front', 'wheels-first'];
 
 const REASON = {
   weight: 'would exceed the weight limit',
@@ -326,6 +377,7 @@ function rank(c, boxes, D, rule) {
   const f0 = -(c[3] - c[0]) * (c[4] - c[1]), f1 = c[5] - c[2];
   if (rule === 'bottom-up') return [z, y, x, f0, f1];
   if (rule === 'back-to-front') return [y, z, x, f0, f1];
+  if (rule === 'wheels-first') return [x, z, y, f0, f1];
   return [-round(contact(c, boxes, D), 6), z, y, x, f0, f1];
 }
 
@@ -408,6 +460,10 @@ export const DEFAULT_CONFIG = {
   patience: 60, rules: RULES, allow_squeeze: true,
 };
 
+const BALANCE_MOVES = 8; // heaviest items tried earlier in the order once everything fits
+/** The sort strategy a layout came from (its label without the rule and any '+ ...' steps). */
+const origin = (strategy) => strategy.split(', ')[0].split(' + ')[0];
+
 const priorityLast = (order) => (order.some((i) => i.priority) ? [...order.filter((i) => !i.priority), ...order.filter((i) => i.priority)] : order);
 
 function mutate(order, rnd) {
@@ -475,8 +531,27 @@ function search(packer, items, cfg, rnd, deadline, onProgress) {
       for (const rule of cfg.rules) consider(order, name, rule, force);
     }
   }
+  // If everything fits, try to bring the weight down to the wheel end: move
+  // each of the heaviest items earlier in the packing order (earlier = lower
+  // down and, with "wheels-first", nearer the wheels). The local search below
+  // keeps any gain, as balance is part of the score.
+  const outOfTime = () => deadline && performance.now() > deadline;
+  if (!best.unpacked.length) {
+    for (const item of [...items].sort((a, b) => b.weight - a.weight).slice(0, BALANCE_MOVES)) {
+      for (const share of [0, 0.5]) { // to the front, or halfway towards it
+        if (outOfTime()) break;
+        const order = bestOrder.filter((it) => it.id !== item.id);
+        const at = Math.max(0, bestOrder.findIndex((it) => it.id === item.id));
+        order.splice(Math.floor(at * share), 0, item);
+        const from = origin(best.strategy);
+        for (const rule of new Set([bestRule, 'wheels-first'])) {
+          if (cfg.rules.includes(rule)) consider(order, `${from} + balance`, rule, bestForce);
+        }
+      }
+    }
+  }
   for (let i = 0; ; i++) {
-    if ((deadline && performance.now() > deadline) || packer.isPerfect(best)) break;
+    if (outOfTime() || packer.isPerfect(best)) break;
     // `restarts` is the normal budget; while items are still left over and
     // there is time on the clock, keep looking (up to 10x as long).
     if (i >= cfg.restarts && (!deadline || !best.unpacked.length || i >= cfg.restarts * 10)) break;
@@ -488,9 +563,8 @@ function search(packer, items, cfg, rnd, deadline, onProgress) {
       for (let k = order.length - 1; k > 0; k--) { const j = Math.floor(rnd() * (k + 1)); [order[k], order[j]] = [order[j], order[k]]; }
       consider(order, 'random order', cfg.rules[Math.floor(rnd() * cfg.rules.length)], force);
     } else {
-      const origin = best.strategy.split(', ')[0].replace(/ \+ local search$/, '');
       const rule = rnd() < 0.8 ? bestRule : cfg.rules[Math.floor(rnd() * cfg.rules.length)];
-      consider(mutate(bestOrder, rnd), `${origin} + local search`, rule, force);
+      consider(mutate(bestOrder, rnd), `${origin(best.strategy)} + local search`, rule, force);
     }
   }
   best.attempts = attempts;
@@ -535,6 +609,7 @@ function run(packer, items, cfg, onProgress) {
     }
   }
   best.attempts = attempts;
+  for (const r of best.results || [best]) wheelsDown(r);
   return best;
 }
 
@@ -675,7 +750,7 @@ export function packRequest(catalog, request, onProgress) {
     bags = request.bags.map((b, n) => {
       const kind = b.kind || 'checked';
       if (!(kind in KIND_RANK)) throw new Error(`Bag kind must be checked, cabin or personal, got '${kind}'`);
-      return { ...parseBag(b, 'Bag'), kind, id: String(b.id || `bag${n + 1}`) };
+      return { ...parseBag(b, 'Bag'), kind, id: String(b.id || `bag${n + 1}`), wheels: b.wheels ?? null };
     });
   } else {
     suitcase = parseBag(request.suitcase || {}, 'Suitcase');

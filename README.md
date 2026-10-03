@@ -22,6 +22,11 @@ dropping into place, step by step.
 - **Need it first** (★ next to any item): packed last so it sits on top,
   unless that would leave something out. Passport, documents, wallet,
   earbuds, power bank, medicine and sleep mask are starred by default
+- **Weight balance**: heavy things go at the wheel end and against the back
+  panel, so the case stands and rolls without tipping (and close to your back
+  in a soft bag). Each bag is rated *well balanced*, *OK* or *poorly
+  balanced* (top-heavy or lopsided), and an orange dot in the 3D view shows
+  its centre of gravity moving as items drop in
 - **Several bags** (up to 3, e.g. a checked suitcase plus a backpack): one
   item list is split across them and every bag is packed, side by side in 3D.
   Each bag says where it travels (checked, carry-on or under the seat), and
@@ -88,7 +93,8 @@ How to use it:
    items you picked.
 4. Watch the animation. **Space** plays and pauses, **← / →** step through.
    Drag to rotate, scroll to zoom, right-drag to pan. The buttons on the
-   top right switch see-through walls, top view and reset view.
+   top right switch see-through walls, the centre-of-gravity dot, top view
+   and reset view.
 5. **Save** the trip, **Share** it, or **Print checklist**.
 
 ## Put it online (public web address)
@@ -153,7 +159,7 @@ python main.py                                   # data\sample_trip.json
 python main.py --input data\overpacked_trip.json
 python main.py --restarts 1000 --time-limit 30 --min-support 0.6
 python main.py --input data\two_bag_trip.json    # split across several bags
-python -m unittest discover tests                # 55 tests (JS engine tests need Node.js)
+python -m unittest discover tests                # 62 tests (JS engine tests need Node.js)
 ```
 
 It writes `output\layout.json`, `placement_log.txt` and (with matplotlib)
@@ -191,7 +197,18 @@ against the same rules as the Python one.
 5. **Squeezing.** If not everything fits at natural size, soft items shrink
    along their thinnest side (each item has its own `squeeze` allowance, for
    example 35% for a folded T-shirt) and the search runs again.
-6. **Several bags.** The greedy pass puts each item in the first bag on its
+6. **Weight balance.** The open case lies on its back with its wheels at the
+   left end, so a good layout has its centre of gravity low along the length
+   (near the wheels), low in depth (on the back panel) and centred across the
+   width. Among layouts that are otherwise equal, the search keeps the one
+   that scores best on that, length counting double. A fourth placement rule,
+   "wheels-first", fills from the wheel end, and once everything fits the
+   search tries moving each of the 8 heaviest items earlier in the packing
+   order. Finally, a layout whose weight ended up at the handle end is
+   mirrored end to end, which is just as valid, so the weight is always on
+   the wheel half. Soft bags (no wheels) only count depth and sideways
+   balance. Bags under 2 kg are always rated well balanced.
+7. **Several bags.** The greedy pass puts each item in the first bag on its
    preference list that has room for it (`bag_preferences`: the bag you
    picked; cabin bags only for lithium batteries; under-seat first for
    valuables and ★ items; the hold first for the rest). The same search
@@ -245,7 +262,7 @@ web/
   models/                    drop custom .glb files here
   dev/gallery.html           preview of every model
 blender/animate_packing.py   Blender animation from layout.json
-tests/                       engine, several-bag, catalog and server tests
+tests/                       engine, several-bag, balance, catalog and server tests
 ```
 
 ## Adding catalog items
@@ -259,8 +276,7 @@ are the keys of `MODEL_BUILDERS` in `web/js/models.js`.
 
 1. **Real product models.** Export your own shoes, shirt and so on from
    Blender as .glb files into `web/models/`.
-2. **Weight balance.** Keep heavy items near the wheels and the hinge side.
-3. **Accounts and sync.** Saved trips available on every device (needs a
+2. **Accounts and sync.** Saved trips available on every device (needs a
    hosted backend).
-4. **Exact solver.** Add an exact solver (for example CP-SAT) for small
+3. **Exact solver.** Add an exact solver (for example CP-SAT) for small
    lists, to measure how close the heuristic gets to the best possible.

@@ -69,8 +69,8 @@ export function buildSuitcase(renderer, L, W, H, shellHex = '#2f4858', style = '
     // carry handle on the front wall
     rim.color([0.1, 0.1, 0.11], 0.35).push().translate(L / 2, -T - 0.9, H * 0.55).rotateX(90).scale(1, 0.5, 1)
       .torus(7, [0.9, 0.9], { start: 0, arc: Math.PI, seg: 20, tubeSeg: 8 }).pop();
-    // telescopic handle housing on the left end
-    rim.color([0.25, 0.26, 0.28], 0.8).push().translate(-T - 0.6, W / 2, H / 2).box(1.2, Math.min(W * 0.6, 22), H * 0.9).pop();
+    // telescopic handle housing on the right end, opposite the wheels (stood up, it's the top)
+    rim.color([0.25, 0.26, 0.28], 0.8).push().translate(L + T + 0.6, W / 2, H / 2).box(1.2, Math.min(W * 0.6, 22), H * 0.9).pop();
   }
   out.solid.push(renderer.createMesh(rim.build()));
 

@@ -3,6 +3,7 @@
 
 import { Renderer, OrbitCamera, Mesh } from './engine/renderer.js';
 import { mat4, clamp, easeInOut } from './engine/math.js';
+import { MeshBuilder } from './engine/geometry.js';
 import { loadGlb, fitParts } from './engine/glb.js';
 import { buildProductGeometry } from './models.js';
 import { buildSuitcase } from './suitcase.js';
@@ -10,6 +11,25 @@ import { buildSuitcase } from './suitcase.js';
 const DEG = Math.PI / 180;
 const easeOutCubic = (t) => 1 - Math.pow(1 - t, 3);
 const BAG_GAP = 18; // cm between bags (room for the wheels of the next one)
+const MARKER = [0.96, 0.58, 0.05]; // centre-of-gravity marker colour
+
+/** Centre-of-gravity marker: a dot, a stem down to the floor and a ring where it lands. */
+function buildMarker(renderer) {
+  const mesh = (build, alpha) => {
+    const b = new MeshBuilder().color(MARKER, 0.5);
+    build(b);
+    const m = renderer.createMesh(b.build());
+    m.overlay = true;
+    m.alpha = alpha;
+    m.visible = false;
+    return m;
+  };
+  return {
+    dot: mesh((b) => b.sphere(1.6, 18), 1),
+    stem: mesh((b) => b.translate(0, 0, 0.5).cylinder(0.28, 1, { seg: 10 }), 0.75), // base at 0, 1 tall
+    ring: mesh((b) => b.torus(2.6, 0.32, { seg: 32, tubeSeg: 6 }), 0.85),
+  };
+}
 
 export class PackingScene {
   constructor(canvas) {
@@ -19,6 +39,7 @@ export class PackingScene {
     this.bags = [];           // [{ L, W, H, ox, walls, solid, shadow }] laid out along x
     this._bagsKey = '';
     this.follow = true;       // while playing, move the camera to the bag being packed
+    this.showBalance = true;  // centre-of-gravity marker per bag
     this._focusBag = -1;
     this.items = [];          // [{ step, mesh, target, euler, size, bag }]
     this.t = 0;               // timeline position in steps
@@ -54,7 +75,7 @@ export class PackingScene {
       const ox = x;
       x += b.L + BAG_GAP;
       for (const m of [...built.solid, ...built.walls, built.shadow]) m.matrix = mat4.multiply(mat4.translation(ox, 0, 0), m.matrix);
-      return { L: b.L, W: b.W, H: b.H, ox, ...built };
+      return { L: b.L, W: b.W, H: b.H, ox, ...built, marker: buildMarker(this.renderer) };
     });
     this._applyXray();
     this.frame();
@@ -65,7 +86,7 @@ export class PackingScene {
   get suitcase() { return this.bags[0] || null; }
 
   _bagMeshes() {
-    return this.bags.flatMap((b) => [...b.solid, ...b.walls, b.shadow]);
+    return this.bags.flatMap((b) => [...b.solid, ...b.walls, b.shadow, b.marker.dot, b.marker.stem, b.marker.ring]);
   }
 
   /** Frame every bag, or just bag `only`, plus the lids lying behind them,
@@ -102,6 +123,36 @@ export class PackingScene {
     this.xray = on;
     this._applyXray();
     this.dirty = true;
+  }
+
+  /** Show or hide the centre-of-gravity markers. */
+  setBalance(on) {
+    this.showBalance = on;
+    this._updateMarkers();
+    this.dirty = true;
+  }
+
+  /** Put each bag's marker at the centre of gravity of what's in it so far. */
+  _updateMarkers() {
+    const sums = this.bags.map(() => [0, 0, 0, 0]);
+    this.items.forEach((it, i) => {
+      const s = sums[it.bag];
+      if (!s || this.t - i < 1 - 1e-6) return; // only items that have landed
+      const w = it.step.weight_kg || 0;
+      for (let a = 0; a < 3; a++) s[a] += it.target[a] * w;
+      s[3] += w;
+    });
+    this.bags.forEach((b, i) => {
+      const [sx, sy, sz, w] = sums[i];
+      const { dot, stem, ring } = b.marker;
+      const on = this.showBalance && w > 0;
+      dot.visible = stem.visible = ring.visible = on;
+      if (!on) return;
+      const x = sx / w, y = sy / w, z = sz / w;
+      dot.matrix = mat4.translation(x, y, z);
+      stem.matrix = mat4.multiply(mat4.translation(x, y, 0), mat4.scaling(1, 1, Math.max(0.01, z)));
+      ring.matrix = mat4.translation(x, y, 0.2);
+    });
   }
 
   _applyXray() {
@@ -230,6 +281,7 @@ export class PackingScene {
       this._lastStep = stepNow;
       this.onStep(stepNow);
     }
+    this._updateMarkers();
     this.onTime(this.t);
   }
 

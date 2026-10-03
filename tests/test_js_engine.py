@@ -48,6 +48,15 @@ class JsEngineTests(unittest.TestCase):
         self.assertEqual(r["warnings"], [])
         self.assertEqual(self.report["bags_no_cabin_bag"]["warnings"], ["power_bank"])
 
+    def test_weight_balance(self):
+        r = self.report["balance_heavy_to_wheels"]
+        self.assertLessEqual(max(r["heavyX"]), 20)  # heavy bricks at the wheel end
+        self.assertEqual(r["balance"][0]["rating"], "good")
+        for name, rep in self.report.items():
+            for bal in rep["balance"]:
+                if bal and bal["wheels"]:
+                    self.assertLessEqual(bal["along"], 0.5, name)  # turned wheels-down
+
     def test_custom_items_keep_their_model(self):
         self.assertIn("gift", self.report["custom_and_priority_override"]["models"])
 

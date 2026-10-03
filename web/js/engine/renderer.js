@@ -66,6 +66,7 @@ export class Mesh {
     this.texture = null;
     this.shine = 0.2;
     this.depthWrite = true;
+    this.overlay = false;     // drawn last, on top of everything (markers)
     this.children = null;     // optional list of sub-meshes (GLB models)
   }
 }
@@ -186,8 +187,10 @@ export class Renderer {
     };
     for (const m of meshes) collect(m, null);
 
-    const opaque = flat.filter((d) => d.alpha >= 0.999 && d.m.mode !== 1);
-    const blended = flat.filter((d) => d.alpha < 0.999 || d.m.mode === 1);
+    const overlay = flat.filter((d) => d.m.overlay);
+    const scene = flat.filter((d) => !d.m.overlay);
+    const opaque = scene.filter((d) => d.alpha >= 0.999 && d.m.mode !== 1);
+    const blended = scene.filter((d) => d.alpha < 0.999 || d.m.mode === 1);
     blended.sort((a, b) => dist2(b.world, eye) - dist2(a.world, eye));
 
     gl.disable(gl.BLEND);
@@ -200,6 +203,11 @@ export class Renderer {
       this._draw(d);
     }
     gl.depthMask(true);
+    if (overlay.length) {
+      // markers: visible through everything, but still shaded and blended
+      gl.clear(gl.DEPTH_BUFFER_BIT);
+      for (const d of overlay) this._draw(d);
+    }
     gl.disable(gl.BLEND);
   }
 

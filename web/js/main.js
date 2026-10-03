@@ -598,9 +598,11 @@ async function doPack() {
   const count = rows.reduce((a, r) => a + r.q, 0);
   const uids = new Set(state.bags.map((b) => b.uid));
   const inBag = (uid) => (uids.has(uid) ? { bag: uid } : {});
+  const looks = bagLooks(state.bags);
   const body = {
     bags: state.bags.map((b, i) => ({
       id: b.uid, name: engineBagName(b, i), kind: b.kind, ...b.dims, max_weight: b.dims.max_weight || null,
+      wheels: looks[i].style === 'hard',
     })),
     items: Object.entries(state.qty).map(([id, quantity]) => ({
       id, quantity, ...(id in state.priority ? { priority: state.priority[id] } : {}), ...inBag(state.assign[id]),
@@ -663,6 +665,8 @@ function renderResultText(layout) {
   renderBagCards(layout);
   const notes = $('metricNotes');
   notes.innerHTML = '';
+  const bal = !multiBag(layout) && balanceText(layoutBags(layout)[0].metrics ? layoutBags(layout)[0].metrics.balance : m.balance);
+  if (bal) notes.append(el('span', { class: `pill bal ${bal.rating}`, title: bal.title }, el('i', { 'aria-hidden': 'true' }), bal.label));
   if (m.squeezed_items) notes.append(el('span', { class: 'pill', title: t('m.squeezedTitle') }, t('m.squeezed', { n: m.squeezed_items })));
   if (m.priority_items) {
     notes.append(el('span', { class: 'pill' }, t('m.onTop', { a: m.priority_items - m.priority_buried, b: m.priority_items })));
@@ -694,6 +698,7 @@ function renderBagCards(layout) {
     const m = b.metrics;
     const looks = state.packedBags[i];
     const over = b.max_weight && m.packed_weight_kg > b.max_weight;
+    const bal = balanceText(m.balance);
     box.append(el('button', {
       type: 'button', class: 'bag-card', title: t('m.bagFocus'), onclick: () => scene && scene.focusBag(i),
     },
@@ -704,8 +709,19 @@ function renderBagCards(layout) {
         t('m.bagItems', { n: m.items_packed }),
         `${fmt(m.volume_efficiency_pct, 0)}%`,
         b.max_weight ? `${fmt(m.packed_weight_kg, 1)}/${fmt(b.max_weight)} ${t('unit.kg')}` : `${fmt(m.packed_weight_kg, 1)} ${t('unit.kg')}`,
-      ].join(' · ')))));
+      ].join(' · ')),
+      bal ? el('small', { class: `bal ${bal.rating}`, title: bal.title }, el('i', { 'aria-hidden': 'true' }), bal.label) : null)));
   });
+}
+
+/** How a bag's weight sits, in words: { rating, label, title } (null for an empty bag). */
+function balanceText(bal) {
+  if (!bal) return null;
+  const why = bal.light ? 'bal.light'
+    : bal.issue === 'lopsided' ? 'bal.side'
+      : bal.issue === 'top-heavy' ? 'bal.top'
+        : bal.rating === 'good' ? (bal.wheels ? 'bal.goodWheels' : 'bal.goodSoft') : (bal.wheels ? 'bal.okWheels' : 'bal.okSoft');
+  return { rating: bal.rating, label: t(`bal.${bal.rating}`), title: `${t(why)} ${t('bal.dot')}` };
 }
 
 /** Localised name of a packed / unpacked item. */
@@ -843,7 +859,11 @@ function printChecklist() {
       el('div', {}, el('b', {}, `${fmt(m.volume_efficiency_pct, 1)}%`), ` ${t('print.space')}`),
       el('div', {}, el('b', {}, `${m.items_packed}/${m.items_total}`), ` ${t('print.items')}`),
       el('div', {}, el('b', {}, `${fmt(m.packed_weight_kg, 1)} ${t('unit.kg')}`), m.weight_limit_kg ? ` ${t('print.of', { max: fmt(m.weight_limit_kg) })}` : ''),
-      m.squeezed_items ? el('div', {}, el('b', {}, String(m.squeezed_items)), ` ${t('print.squeezed')}`) : null),
+      m.squeezed_items ? el('div', {}, el('b', {}, String(m.squeezed_items)), ` ${t('print.squeezed')}`) : null,
+      ...bags.map((b, i) => {
+        const bal = balanceText(b.metrics ? b.metrics.balance : m.balance);
+        return bal ? el('div', { title: bal.title }, el('b', {}, bal.label), multi ? ` · ${packedBagTitle(i)}` : '') : null;
+      })),
   );
   const thumbs = [];
   const rows = bagGroups(layout).flatMap((g) => [
@@ -1002,6 +1022,11 @@ function bindControls() {
     $('xrayBtn').setAttribute('aria-pressed', String(on));
   });
   $('topBtn').addEventListener('click', () => scene.topView());
+  $('balanceBtn').addEventListener('click', () => {
+    const on = !scene.showBalance;
+    scene.setBalance(on);
+    $('balanceBtn').setAttribute('aria-pressed', String(on));
+  });
   $('resetBtn').addEventListener('click', () => scene.frame());
 
   const canvas = $('scene');

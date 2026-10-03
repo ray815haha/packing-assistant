@@ -431,3 +431,12 @@ svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width:
 @media print {
   .print-view tr.bag-row td { padding-top: 5mm; border-bottom: 1.5px solid #333; font-size: 12pt; }
 }
+
+/* ---------- weight balance ---------- */
+.bal { display: inline-flex; align-items: center; gap: 5px; }
+.bal i { width: 8px; height: 8px; border-radius: 50%; background: #f59e0b; flex: none; }
+.bal.good i { background: #16a34a; }
+.bal.poor i { background: var(--danger); }
+.bal.poor { color: var(--danger); }
+.bag-card small.bal { margin-top: 1px; color: var(--text); }
+.bag-card small.bal.poor { color: var(--danger); }

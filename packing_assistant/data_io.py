@@ -40,6 +40,7 @@ def suitcase_from_dict(d: dict[str, Any]) -> Suitcase:
         max_weight=float(d["max_weight"]) if d.get("max_weight") is not None else None,
         kind=str(d.get("kind") or "checked"),
         id=str(d.get("id") or ""),
+        wheels=bool(d["wheels"]) if d.get("wheels") is not None else None,
     )
 
 

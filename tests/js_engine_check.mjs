@@ -84,6 +84,17 @@ cases.push({
   request: { bags: [{ ...preset('medium'), id: 'only' }], items: [{ id: 'power_bank' }, { id: 'tshirt' }], options: { time_limit: 1 } },
 });
 
+cases.push({
+  name: 'balance_heavy_to_wheels',
+  request: {
+    bags: [{ id: 'case', name: 'Case', length: 80, width: 20, height: 10, kind: 'checked' }],
+    custom_items: [0, 1, 2, 3, 4, 5, 6, 7].map((i) => ({
+      id: `b${i}`, name: `Brick ${i}`, length: 10, width: 10, height: 10, weight: i < 2 ? 5 : 0.2,
+    })),
+    options: { time_limit: 2 },
+  },
+});
+
 const report = [];
 for (const c of cases) {
   const layout = packRequest(catalog, c.request);
@@ -92,6 +103,8 @@ for (const c of cases) {
     name: c.name,
     bags: bagIds && Object.fromEntries(layout.steps.map((st) => [st.id, bagIds[st.bag]])),
     warnings: layout.steps.filter((st) => st.cabin_warning).map((st) => st.id),
+    balance: (layout.bags || []).map((b) => b.metrics.balance),
+    heavyX: layout.steps.filter((st) => st.weight_kg >= 5).map((st) => st.position[0]),
     packed: layout.metrics.items_packed,
     total: layout.metrics.items_total,
     efficiency: layout.metrics.volume_efficiency_pct,

@@ -6,6 +6,10 @@ Coordinate convention (used everywhere in the project):
     z -> height (bottom to top)
 Units are centimetres and kilograms. The origin is the front-left-bottom
 inner corner of the suitcase.
+
+The open case lies on its back: z = 0 is the back panel (where the trolley
+handle runs), and the wheels are at the left end (x = 0). Stood up, the left
+end is the bottom.
 """
 
 from __future__ import annotations
@@ -32,6 +36,7 @@ class Suitcase:
     # Only used when packing several bags at once (see optimizer.MultiBagPacker):
     kind: str = "checked"  # "checked" (hold), "cabin" (overhead locker) or "personal" (under the seat)
     id: str = ""
+    wheels: Optional[bool] = None  # None: wheeled unless it's a personal (under-seat) bag
 
     def __post_init__(self) -> None:
         for label, v in (("length", self.length), ("width", self.width), ("height", self.height)):
@@ -43,6 +48,10 @@ class Suitcase:
     @property
     def in_cabin(self) -> bool:
         return self.kind != "checked"
+
+    @property
+    def has_wheels(self) -> bool:
+        return self.wheels if self.wheels is not None else self.kind != "personal"
 
     @property
     def dims(self) -> Dims:

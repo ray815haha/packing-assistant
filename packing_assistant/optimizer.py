@@ -19,7 +19,11 @@ Approach
 5. **Squeezing**: if not everything fits, soft items (folded clothes, rolls)
    are squashed a little (``squeeze``: how much their thickness can shrink)
    and the search runs again: first by half their allowance, then fully.
-6. **Several bags** (``pack_bags``): each item goes into the first bag on its
+6. **Weight balance**: among equally good layouts, the search prefers the
+   one whose centre of gravity is nearest the wheel end, the back panel and
+   the middle (``PackingResult.balance``); the "wheels-first" placement rule
+   gives it layouts that put heavy things there.
+7. **Several bags** (``pack_bags``): each item goes into the first bag on its
    preference list with room for it (see ``bag_preferences``). The same
    search then optimises the whole trip at once, not one bag after another.
 
@@ -48,7 +52,7 @@ class PackerConfig:
     respect_fragile: bool = True
     patience: int = 60  # once everything fits, stop after this many attempts without improvement
     # Placement rules the search alternates between (see PLACEMENT_RULES).
-    rules: tuple[str, ...] = ("max-contact", "bottom-up", "back-to-front")
+    rules: tuple[str, ...] = ("max-contact", "bottom-up", "back-to-front", "wheels-first")
     allow_squeeze: bool = True  # squash soft items when not everything fits
 
 
@@ -101,6 +105,7 @@ class PackingResult:
             "packed_weight_kg": round(self.packed_weight, 2),
             "weight_limit_kg": s.max_weight,
             "center_of_gravity_cm": [round(c, 1) for c in cog] if cog else None,
+            "balance": self.balance(),
             "squeezed_items": sum(1 for p in self.placements if p.item.squeezed_fraction > 0.001),
             "priority_items": sum(1 for p in self.placements if p.item.priority),
             "priority_buried": len(self.buried_priority()),
@@ -132,12 +137,64 @@ class PackingResult:
         centre of gravity."""
         squeezed = sum(p.item.natural_volume - p.item.volume for p in self.placements)
         return (round(self.packed_natural_volume, 6), len(self.placements), -len(self.buried_priority()),
-                -round(squeezed, 3), -round(self.cog_height(), 6), -self.fill_height())
+                -round(squeezed, 3), -round(self.balance_penalty(), 6), -self.fill_height())
 
-    def cog_height(self) -> float:
-        """Height of the centre of gravity as a share of the case height."""
+    def _balance_parts(self) -> Optional[tuple[float, float, float]]:
+        """Centre of gravity as shares of the case: (along, depth, side).
+
+        along: 0 = wheel end, 1 = handle end (low is good: the case stands
+               and rolls without tipping)
+        depth: 0 = back panel, 1 = lid (low is good: close to the handle,
+               or to your back for a soft bag)
+        side:  0 = centred across the width, 1 = against one side
+        """
         cog = self.center_of_gravity()
-        return cog[2] / self.suitcase.height if cog else 0.0
+        if cog is None:
+            return None
+        s = self.suitcase
+        return cog[0] / s.length, cog[2] / s.height, abs(cog[1] / s.width - 0.5) * 2
+
+    def balance_penalty(self) -> float:
+        """Smaller is better (0 = all the weight at the wheel end, on the back panel, centred)."""
+        parts = self._balance_parts()
+        if parts is None:
+            return 0.0
+        along, depth, side = parts
+        # the final layout is turned end to end if that puts the weight nearer
+        # the wheels (wheels_down), so either end counts as the wheel end here
+        # along counts double: weight at the handle end is what tips a case over
+        return (2 * min(along, 1 - along) if self.suitcase.has_wheels else 0.0) + depth + 0.5 * side
+
+    def wheels_down(self) -> None:
+        """Mirror the layout end to end if its weight sits nearer the handle
+        end. A mirrored layout is just as valid: same supports, same fit."""
+        parts = self._balance_parts()
+        if not self.suitcase.has_wheels or parts is None or parts[0] <= 0.5:
+            return
+        for p in self.placements:
+            p.x = round(self.suitcase.length - p.x - p.size[0], 9)
+
+    def balance(self) -> Optional[dict]:
+        """How the weight sits, for people: the shares above plus a rating
+        ("good", "ok" or "poor") and, if poor, why ("top-heavy" or "lopsided")."""
+        parts = self._balance_parts()
+        if parts is None:
+            return None
+        along, depth, side = parts
+        wheels = self.suitcase.has_wheels
+        light = self.packed_weight < LIGHT_BAG_KG  # too light for balance to matter
+        issue = None if light else (
+            "lopsided" if side > 0.5 else ("top-heavy" if wheels and along > 0.55 else None))
+        if light:
+            rating = "good"
+        elif issue:
+            rating = "poor"
+        elif side <= 0.3 and (along <= 0.45 if wheels else depth <= 0.5):
+            rating = "good"
+        else:
+            rating = "ok"
+        return {"wheels": wheels, "along": round(along, 3), "depth": round(depth, 3), "side": round(side, 3),
+                "rating": rating, "issue": issue, "light": light}
 
     def fill_height(self) -> float:
         return max((p.box.hi(2) for p in self.placements), default=0.0)
@@ -187,11 +244,18 @@ class MultiPackingResult:
         squeezed = sum(p.item.natural_volume - p.item.volume for p in self.placements)
         return (round(self.packed_natural_volume, 6), len(self.placements), -len(self.buried_priority()),
                 -self.penalty, -round(squeezed, 3),
-                -round(sum(r.cog_height() for r in self.results), 6),
+                -round(self.balance_penalty(), 6),
                 -sum(r.fill_height() for r in self.results))
 
     def is_perfect(self) -> bool:
         return not self.unpacked and self.packed_volume >= self.capacity - EPS
+
+    def balance_penalty(self) -> float:
+        """Each bag's balance penalty, weighted by how heavy the bag is."""
+        total = self.packed_weight
+        if total <= 0:
+            return 0.0
+        return sum(r.balance_penalty() * r.packed_weight for r in self.results) / total
 
     def metrics(self) -> dict:
         """Totals over all bags, with the same keys as PackingResult.metrics."""
@@ -324,6 +388,8 @@ class ExtremePointPacker:
             return (z, y, x, *flat)
         if self._rule == "back-to-front":
             return (y, z, x, *flat)
+        if self._rule == "wheels-first":
+            return (x, z, y, *flat)
         # max-contact: hug walls and neighbours as much as possible
         return (-round(self._contact_area(c, boxes), 6), z, y, x, *flat)
 
@@ -415,6 +481,7 @@ PLACEMENT_RULES = {
     "max-contact": "touch as much wall / neighbour surface as possible",
     "bottom-up": "fill layer by layer from the bottom, front-left first",
     "back-to-front": "build columns from the front wall towards the back",
+    "wheels-first": "fill from the wheel end towards the handle end",
 }
 
 
@@ -558,6 +625,8 @@ class PackingOptimizer:
                     break
 
         best.attempts = attempts
+        for r in getattr(best, "results", [best]):
+            r.wheels_down()
         return best
 
     def _search(self, packer, items: list[Item], rng: random.Random, deadline: Optional[float]):
@@ -602,7 +671,25 @@ class PackingOptimizer:
                 for rule in cfg.rules:
                     consider(order, name, rule, force)
 
-        # Phase 2: local search around the best layout (swap / move items in the
+        # Phase 2: if everything fits, try to bring the weight down to the wheel
+        # end: move each of the heaviest items earlier in the packing order
+        # (earlier = lower down and, with "wheels-first", nearer the wheels).
+        # The local search below keeps any gain, as balance is part of the score.
+        if not best.unpacked:
+            heaviest = sorted(items, key=lambda it: -it.weight)[:BALANCE_MOVES]
+            for item in heaviest:
+                for share in (0.0, 0.5):  # to the front, or halfway towards it
+                    if out_of_time():
+                        break
+                    order = [it for it in best_order if it.id != item.id]
+                    at = next((k for k, it in enumerate(best_order) if it.id == item.id), 0)
+                    order.insert(int(at * share), item)
+                    origin = _origin(best.strategy)
+                    for rule in dict.fromkeys((best_rule, "wheels-first")):
+                        if rule in cfg.rules:
+                            consider(order, f"{origin} + balance", rule, best_force)
+
+        # Phase 3: local search around the best layout (swap / move items in the
         # packing order), with an occasional fresh random order to escape dead ends.
         i = -1
         while True:
@@ -623,13 +710,21 @@ class PackingOptimizer:
                 consider(order, "random order", rng.choice(cfg.rules), force)
             else:
                 assert best is not None
-                origin = best.strategy.split(", ")[0].removesuffix(" + local search")
+                origin = _origin(best.strategy)
                 rule = best_rule if rng.random() < 0.8 else rng.choice(cfg.rules)
                 consider(_mutate(best_order, rng), f"{origin} + local search", rule, force)
 
-        assert best is not None
         best.attempts = attempts
         return best
+
+
+BALANCE_MOVES = 8  # heaviest items tried earlier in the order once everything fits
+LIGHT_BAG_KG = 2.0  # a bag lighter than this is rated well balanced whatever its layout
+
+
+def _origin(strategy: str) -> str:
+    """The sort strategy a layout came from (its label without the rule and any '+ ...' steps)."""
+    return strategy.split(", ")[0].split(" + ")[0]
 
 
 def _priority_last(order: list[Item]) -> list[Item]:
