@@ -5,6 +5,14 @@
 
 const TRIPS_KEY = 'spa-trips-v1';
 
+/** A trip's saved_at: kept when it comes with one (a trip synced from another
+ * device), otherwise now. Seconds. */
+export function savedAt(given) {
+  const now = Math.floor(Date.now() / 1000);
+  const t = Math.floor(Number(given));
+  return t > 0 && t <= now + 86400 ? t : now;
+}
+
 export async function connect() {
   try {
     const res = await fetch('api/catalog', { cache: 'no-store' });
@@ -34,7 +42,7 @@ function serverBackend(catalog) {
   };
 }
 
-function localBackend(catalog) {
+export function localBackend(catalog) {
   let worker = null;
   let seq = 0;
   const pending = new Map();
@@ -79,7 +87,7 @@ function localBackend(catalog) {
     async saveTrip(trip) {
       const name = String(trip.name || '').trim().slice(0, 60);
       if (!name) throw new Error('A saved trip needs a name.');
-      const clean = { ...trip, name, id: trip.id || Math.random().toString(36).slice(2, 12), saved_at: Math.floor(Date.now() / 1000) };
+      const clean = { ...trip, name, id: trip.id || Math.random().toString(36).slice(2, 12), saved_at: savedAt(trip.saved_at) };
       writeTrips([clean, ...readTrips().filter((t) => t.id !== clean.id && t.name !== name)].slice(0, 100));
       return clean;
     },

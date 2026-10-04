@@ -440,3 +440,44 @@ svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width:
 .bal.poor { color: var(--danger); }
 .bag-card small.bal { margin-top: 1px; color: var(--text); }
 .bag-card small.bal.poor { color: var(--danger); }
+
+/* ---------- accounts & sync ---------- */
+.account-btn { position: relative; }
+.sync-dot { position: absolute; right: 4px; bottom: 4px; width: 9px; height: 9px; border-radius: 50%; border: 2px solid var(--surface); display: none; }
+.sync-dot.ok, .sync-dot.syncing, .sync-dot.offline, .sync-dot.error { display: block; }
+.sync-dot.ok { background: #16a34a; }
+.sync-dot.syncing { background: var(--accent-2); animation: pulse 1s ease-in-out infinite; }
+.sync-dot.offline { background: #9ca3af; }
+.sync-dot.error { background: var(--danger); }
+@keyframes pulse { 50% { opacity: .35; } }
+.account-body { padding-bottom: 18px; }
+.auth-tabs { margin-top: 4px; }
+.auth-form { display: grid; gap: 10px; margin-top: 12px; }
+.auth-form label { display: grid; gap: 4px; font-size: 12px; color: var(--muted); }
+.auth-form input { border: 1px solid var(--line); border-radius: 8px; padding: 9px 10px; background: var(--surface-2); font-size: 14px; color: var(--text); }
+.auth-form input:focus { outline: 2px solid var(--accent-2); outline-offset: -1px; background: #fff; }
+.auth-form .hint { margin: -4px 0 0; }
+.auth-form .link { justify-self: start; }
+.auth-msg { margin: 0; font-size: 13px; }
+.auth-msg.error { color: var(--danger); }
+.auth-msg.info { color: var(--accent); }
+.account-body .auth-msg { margin-top: 10px; }
+.auth-form .auth-msg { margin-top: 0; }
+.acct-who { margin: 2px 0 6px; overflow-wrap: anywhere; }
+.acct-sub { margin: 0 0 4px; font-size: 14px; }
+.sync-line { display: flex; align-items: center; gap: 8px; margin: 4px 0; font-size: 13px; }
+.sync-state { width: 9px; height: 9px; border-radius: 50%; background: #16a34a; flex: none; }
+.sync-line.syncing .sync-state { background: var(--accent-2); animation: pulse 1s ease-in-out infinite; }
+.sync-line.offline .sync-state { background: #9ca3af; }
+.sync-line.error .sync-state, .sync-line.signed-out .sync-state { background: var(--danger); }
+.acct-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 12px; }
+.acct-actions .btn { padding: 8px 14px; }
+.acct-actions .btn.primary { width: auto; font-size: 14px; padding: 8px 16px; }
+.danger-link { display: block; margin-top: 16px; font-size: 12.5px; color: var(--danger); }
+.btn.danger { background: var(--danger); color: #fff; }
+.btn.danger:hover { background: #8f1c13; }
+.btn:disabled { opacity: .6; cursor: default; }
+.acct-confirm { margin-top: 12px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-2); }
+.acct-confirm.danger { border-color: #f5c2bd; background: #fdf1f0; }
+.acct-confirm p { margin: 0 0 4px; font-size: 13px; }
+.acct-confirm .toggle { margin: 0; }

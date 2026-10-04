@@ -26,6 +26,10 @@
         <span data-i18n="top.install">Install app</span>
       </button>
       <span class="mode" id="modeBadge"></span>
+      <button class="icon-btn settings-btn account-btn" id="accountBtn" type="button" hidden data-i18n-title="acct.button" data-i18n-aria="acct.button" title="Account and sync" aria-label="Account and sync">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>
+        <span class="sync-dot" id="syncDot" aria-hidden="true"></span>
+      </button>
       <button class="icon-btn settings-btn" id="settingsBtn" type="button" data-i18n-title="top.settings" data-i18n-aria="top.settings" title="Settings" aria-label="Settings">
         <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
       </button>
@@ -223,6 +227,19 @@
         <button class="btn primary" value="done" data-i18n="settings.done">Done</button>
       </footer>
     </form>
+  </dialog>
+
+  <!-- ============================ account & sync ============================ -->
+  <dialog class="settings account" id="accountDialog" aria-labelledby="accountTitle">
+    <div class="settings-card">
+      <header class="settings-head">
+        <h2 id="accountTitle" data-i18n="acct.title">Account</h2>
+        <button class="icon-btn" type="button" id="accountClose" data-i18n-title="settings.close" data-i18n-aria="settings.close" title="Close" aria-label="Close">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+        </button>
+      </header>
+      <div class="settings-section account-body" id="accountBody"></div>
+    </div>
   </dialog>
 
   <div class="toast" id="toast" role="status" hidden></div>

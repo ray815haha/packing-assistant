@@ -142,9 +142,9 @@ def save_trip(trip: dict[str, Any], path: Optional[Path] = None) -> dict[str, An
     if not name:
         raise ValueError("A saved trip needs a name.")
     clean = {
-        "id": str(trip.get("id") or uuid.uuid4().hex[:10]),
+        "id": str(trip.get("id") or uuid.uuid4().hex[:10])[:40],
         "name": name,
-        "saved_at": int(time.time()),
+        "saved_at": _saved_at(trip.get("saved_at")),
         "suitcase": trip.get("suitcase") or {},
         "suitcaseId": str(trip.get("suitcaseId", ""))[:30],
         "shell": str(trip.get("shell", ""))[:9],
@@ -161,6 +161,19 @@ def save_trip(trip: dict[str, Any], path: Optional[Path] = None) -> dict[str, An
     tmp.write_text(json.dumps(trips[:MAX_TRIPS], indent=1), encoding="utf-8")
     tmp.replace(path)
     return clean
+
+
+def _saved_at(given: Any) -> int:
+    """A trip's saved_at: kept when it comes with one (a trip synced from
+    another device, see web/js/sync.js), otherwise now. Seconds."""
+    import time
+
+    now = int(time.time())
+    try:
+        t = int(float(given))
+    except (TypeError, ValueError):
+        return now
+    return t if 0 < t <= now + 86400 else now
 
 
 def _clean_bags(bags: Any) -> list[dict[str, Any]]:

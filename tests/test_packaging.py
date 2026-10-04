@@ -38,7 +38,7 @@ class PackagingTests(unittest.TestCase):
         self.assertIn('id="installBtn"', html)
 
     def test_windows_launchers_use_crlf(self):
-        for name in ("Start Packing Assistant.bat", "Create Desktop Shortcut.bat", "Publish to GitHub.bat"):
+        for name in ("Start Packing Assistant.bat", "Create Desktop Shortcut.bat", "Publish to GitHub.bat", "Set up sync.bat"):
             data = (ROOT / name).read_bytes()
             self.assertIn(b"\r\n", data, name)
             self.assertNotIn(b"\n", data.replace(b"\r\n", b""), f"{name} has bare LF line endings")

@@ -5,22 +5,15 @@ import { PackingScene } from './scene.js';
 import { thumbInto } from './thumbs.js';
 import { MODEL_BUILDERS } from './models.js';
 import { connect } from './api.js';
+import { loadSyncConfig, Cloud } from './cloud.js';
+import { Sync } from './sync.js';
+import { initAccount } from './account.js';
+import { $, el } from './dom.js';
 import {
   LANGS, lang, setLang, onLangChange, t, catalogName, packedName, applyStatic, reasonText, describeStep,
 } from './i18n.js';
 
-const $ = (id) => document.getElementById(id);
-const el = (tag, attrs = {}, ...children) => {
-  const e = document.createElement(tag);
-  for (const [k, v] of Object.entries(attrs)) {
-    if (k === 'class') e.className = v;
-    else if (k.startsWith('on')) e.addEventListener(k.slice(2), v);
-    else if (v !== undefined && v !== null && v !== false) e.setAttribute(k, v === true ? '' : v);
-  }
-  for (const c of children.flat()) if (c !== null && c !== undefined) e.append(c.nodeType ? c : document.createTextNode(c));
-  return e;
-};
-const svg = (html) => { const t = document.createElement('template'); t.innerHTML = html.trim(); return t.content.firstChild; };
+const svg =(html) => { const t = document.createElement('template'); t.innerHTML = html.trim(); return t.content.firstChild; };
 const fmt = (n, d = 1) => Number(n).toLocaleString(undefined, { maximumFractionDigits: d });
 const PIN_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2l2.9 6.3 6.9.7-5.2 4.6 1.5 6.8L12 17l-6.1 3.4 1.5-6.8L2.2 9l6.9-.7z"/></svg>';
 
@@ -53,6 +46,9 @@ const bag = () => state.bags[state.activeBag];
 
 let scene;
 let backend;
+let cloud = null; // accounts & sync (cloud.js), when web/sync.json is filled in
+let sync = null;
+let account = null;
 
 // --------------------------------------------------------------------------- //
 async function init() {
@@ -61,7 +57,7 @@ async function init() {
   } catch (err) {
     $('emptyState').innerHTML = `<h3>${t('err.no3dTitle')}</h3><p>${escapeHtml(err.message)} ${t('err.no3dBody')}</p>`;
   }
-  window.spa = { state, get scene() { return scene; }, get backend() { return backend; } };
+  window.spa = { state, get scene() { return scene; }, get backend() { return backend; }, get sync() { return sync; } };
   backend = await connect();
   state.catalog = backend.catalog;
   state.catalogIds = new Set(state.catalog.items.map((i) => i.id));
@@ -83,6 +79,18 @@ async function init() {
   bindControls();
   await refreshTrips();
   if (shared) toast(t('toast.sharedLoaded'));
+  await startSync();
+}
+
+/** Accounts & sync: only when web/sync.json names a Supabase project. */
+async function startSync() {
+  const config = await loadSyncConfig();
+  if (!config) return;
+  cloud = new Cloud(config);
+  sync = new Sync(cloud, backend, { onTripsChanged: refreshTrips, onStatus: () => renderTrips() });
+  account = initAccount({ cloud, sync, toast });
+  await account.handleRedirect(); // back from an emailed link?
+  sync.start();
 }
 
 // -- persistence (per-browser convenience only) ------------------------------ //
@@ -373,6 +381,8 @@ function renderProfiles() {
 
 async function refreshTrips() {
   try { state.trips = await backend.listTrips(); } catch { state.trips = []; }
+  // newest first (trips synced from other devices arrive in any order)
+  state.trips.sort((a, b) => (Number(b.saved_at) || 0) - (Number(a.saved_at) || 0));
   renderTrips();
 }
 
@@ -385,7 +395,8 @@ function renderTrips() {
       el('button', { type: 'button', class: 'link', style: 'color:inherit', onclick: () => loadTrip(trip) }, trip.name),
       el('button', { type: 'button', class: 'x', 'aria-label': t('trips.delete', { name: trip.name }), onclick: () => removeTrip(trip) }, '×')));
   }
-  $('tripsHint').textContent = state.trips.length ? '' : t(backend.mode === 'server' ? 'trips.hintServer' : 'trips.hintBrowser');
+  $('tripsHint').textContent = cloud && cloud.user ? t('trips.hintSynced')
+    : state.trips.length ? '' : t(backend.mode === 'server' ? 'trips.hintServer' : 'trips.hintBrowser');
 }
 
 function loadTrip(trip) {
@@ -401,7 +412,8 @@ async function removeTrip(trip) {
     await backend.deleteTrip(trip.id);
     toast(t('toast.deleted', { name: trip.name }));
   } catch (err) { toast(t('toast.deleteFail', { msg: err.message })); }
-  refreshTrips();
+  await refreshTrips();
+  if (sync) sync.schedule();
 }
 
 async function saveCurrentTrip(name) {
@@ -413,7 +425,8 @@ async function saveCurrentTrip(name) {
     });
     toast(t('toast.saved', { name: saved.name }));
   } catch (err) { toast(t('toast.saveFail', { msg: err.message })); }
-  refreshTrips();
+  await refreshTrips();
+  if (sync) sync.schedule();
 }
 
 function refreshAll() {
@@ -1102,6 +1115,7 @@ onLangChange(() => {
   renderChrome();
   renderBagEditor(); renderProfiles(); renderCategories(); renderItems();
   renderCustomModelOptions(); renderTrips(); updateSummary();
+  if (account) account.render();
   if (state.layout) renderResultText(state.layout);
   toast(t('toast.lang'));
 });

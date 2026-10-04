@@ -49,6 +49,10 @@ dropping into place, step by step.
   look at that bag)
 - **Saved trips**: name and reuse a selection (e.g. "Tokyo in March"),
   stored in `data/trips.json`
+- **Accounts and sync** (optional): sign in with an email and password and
+  your saved trips follow you to every device: the app on your computer, the
+  website, your phone. Needs a free Supabase project, set up once (see
+  [Accounts and sync](#accounts-and-sync))
 - **Share**: a link (or a trip code in the online version) that loads your
   suitcase and item list for someone else
 - **Printable checklist** with a picture of the packed case and tick boxes
@@ -57,7 +61,7 @@ dropping into place, step by step.
   language, see `web/js/i18n.js`
 
 Everything runs locally with only the Python standard library. No installs,
-no internet needed.
+no internet needed (except to sync, if you turn that on).
 
 ## Run the app (Windows)
 
@@ -131,8 +135,67 @@ build above, then drag the `dist\site` folder onto
 <https://app.netlify.com/drop>.
 
 Differences from the version on your computer: saved trips stay in each
-visitor's browser, and custom `.glb` models must be committed into
-`web\models\`.
+visitor's browser (unless they sign in, see below), and custom `.glb` models
+must be committed into `web\models\`.
+
+## Accounts and sync
+
+With accounts turned on, people can sign in (email + password) and their
+saved trips sync between all their devices: the app on a computer, the
+website, a phone. Trips still work offline; they sync when there's a
+connection again. Without it set up, the account button simply isn't shown.
+
+The accounts and trips live in a [Supabase](https://supabase.com) project
+that you own (the free plan is plenty). Setting it up takes about ten
+minutes, once:
+
+1. **Create the project.** Sign up at supabase.com, then **New project**.
+   Pick a region near you. The database password it asks for isn't used by
+   the app; just keep it somewhere safe.
+2. **Create the table.** Open **SQL Editor**, then **New query**, paste the
+   whole of `supabase\setup.sql` and press **Run**. It creates the `trips`
+   table and the rules that let each person see only their own trips.
+3. **Email sign-in.** Under **Authentication > Sign In / Providers > Email**,
+   make sure Email is on, and turn **Confirm email** *off*. Supabase's
+   built-in email sender only delivers to your own team's addresses (and 2
+   emails an hour), so with it on, new users would never get the
+   confirmation email. If you connect your own email provider later
+   (**Authentication > Emails > SMTP**), you can turn it back on; that's
+   also what makes **Forgot your password?** emails reach people.
+4. **Where people come back to.** Under **Authentication > URL
+   Configuration**, set **Site URL** to your website's address (e.g.
+   `https://<your-username>.github.io/packing-assistant/`) and add
+   `http://127.0.0.1:8765/**` to **Redirect URLs** (for links opened with
+   the app on your computer).
+5. **Connect the app.** Double-click **`Set up sync.bat`** and paste the
+   **Project URL** and the **publishable key** (`sb_publishable_...`; on
+   older projects the **anon** key). Both are under **Project Settings > API
+   Keys** / **Data API**. Never use the *secret* or *service_role* key: the
+   tool refuses those, because they would bypass everyone's privacy. It
+   checks the project, then writes `web\sync.json`.
+6. **Restart the app**, and run **`Publish to GitHub.bat`** to put the
+   account button on the website too.
+
+What's stored: each person's email address and password (hashed, by
+Supabase), and their saved trips. Nothing else: packing itself never leaves
+the device. In the app, **Delete account** removes the account and every
+trip synced to it; trips saved on each device stay there. To turn sync off
+again: `python tools\setup_sync.py --off`.
+
+How syncing works: each trip remembers when it was last changed, and the
+newest version wins, deletes included (a delete leaves a small marker in the
+cloud so other devices hear about it). Two trips with the same name count as
+the same trip, as when saving. Each sync only fetches what changed since the
+last one. The code is in `web\js\sync.js` (what to change where) and
+`web\js\cloud.js` (talking to Supabase, with plain `fetch` calls).
+
+To try it without a Supabase project, run the stand-in the tests use and
+point `web\sync.json` at it (`"supabase_url": "http://127.0.0.1:8790"`, and
+the key it prints):
+
+```powershell
+python tests\fake_supabase.py
+```
 
 ## 3D product models
 
@@ -184,7 +247,7 @@ python main.py                                   # data\sample_trip.json
 python main.py --input data\overpacked_trip.json
 python main.py --restarts 1000 --time-limit 30 --min-support 0.6
 python main.py --input data\two_bag_trip.json    # split across several bags
-python -m unittest discover tests                # 68 tests (JS engine tests need Node.js)
+python -m unittest discover tests                # 86 tests (the JS ones need Node.js)
 ```
 
 It writes `output\layout.json`, `placement_log.txt` and (with matplotlib)
@@ -271,6 +334,8 @@ tools/build_hosted.py        builds the website into dist/site/ (--artifact: sin
 Start Packing Assistant.bat  double-click launcher (Windows)
 Create Desktop Shortcut.bat  adds desktop + Start-menu shortcuts
 Publish to GitHub.bat        one-click publish to GitHub Pages
+Set up sync.bat              connects accounts & sync to your Supabase project (tools/setup_sync.py)
+supabase/setup.sql           the database for accounts & sync (run once in Supabase)
 tools/github-pages.yml       deploy workflow (tests, then publishes dist/site)
 web/manifest.webmanifest, web/sw.js, web/icons/   installable app + offline support
 web/
@@ -283,6 +348,9 @@ web/
   js/engine/                 small WebGL renderer, geometry builder, .glb loader
   js/packer/                 JavaScript packing engine + Web Worker (online version)
   js/api.js                  talks to the Python server, or falls back to the JS engine
+  js/cloud.js, js/sync.js    accounts & sync: Supabase calls, and keeping trips in step
+  js/account.js              the account button and dialog
+  sync.json                  your Supabase project (empty = sync off)
   data/catalog.json          copy of the catalog for the online version
   models/types/              detailed product models (made by blender/make_models.py)
   models/                    drop your own .glb files here (named after the item id)
@@ -302,7 +370,5 @@ are the keys of `MODEL_BUILDERS` in `web/js/models.js`.
 
 ## Roadmap
 
-1. **Accounts and sync.** Saved trips available on every device (needs a
-   hosted backend).
-2. **Exact solver.** Add an exact solver (for example CP-SAT) for small
+1. **Exact solver.** Add an exact solver (for example CP-SAT) for small
    lists, to measure how close the heuristic gets to the best possible.
